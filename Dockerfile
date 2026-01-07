@@ -61,10 +61,5 @@ ENV PORT=3000
 # Expose port
 EXPOSE 3000
 
-# Run as non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-RUN chown -R appuser:appuser /app
-USER appuser
-
-# Start the application
+# Start the application (running as root for Chrome sandbox compatibility)
 CMD ["node", "src/index.js"]

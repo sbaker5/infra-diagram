@@ -3,6 +3,9 @@ services:
     build: .
     container_name: infra-diagrams
     restart: unless-stopped
+    shm_size: '2gb'
+    security_opt:
+      - seccomp=unconfined
     volumes:
       - ./data:/app/data
     environment:
@@ -10,6 +13,7 @@ services:
       - SESSION_SECRET=${SESSION_SECRET}
       - APP_PASSWORD=${APP_PASSWORD}
       - PORT=3000
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
     labels:
       - traefik.enable=true
       - traefik.http.routers.diagrams.rule=Host(`diagrams.srv1252100.hstgr.cloud`)
