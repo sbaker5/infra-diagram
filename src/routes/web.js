@@ -284,6 +284,61 @@ router.get('/exports/:filename', (req, res) => {
   res.sendFile(filePath);
 });
 
+// Delete customer
+router.post('/customer/:id/delete', (req, res) => {
+  const customer = db.getCustomer(req.params.id);
+  if (!customer) {
+    return res.status(404).json({ error: 'Customer not found' });
+  }
+
+  // Delete associated diagram and versions first
+  const diagram = db.getDiagramByCustomer(customer.id);
+  if (diagram) {
+    // Delete PNG files
+    const versions = db.getAllVersions(diagram.id);
+    versions.forEach(v => {
+      if (v.png_path) {
+        mermaid.deletePng(v.png_path);
+      }
+    });
+    // Delete diagram (cascades to versions and sessions)
+    db.db.prepare('DELETE FROM diagrams WHERE id = ?').run(diagram.id);
+  }
+
+  // Delete customer
+  db.db.prepare('DELETE FROM customers WHERE id = ?').run(customer.id);
+
+  res.json({ success: true, redirect: '/' });
+});
+
+// Delete specific diagram version
+router.post('/customer/:id/version/:version/delete', (req, res) => {
+  const customer = db.getCustomer(req.params.id);
+  if (!customer) {
+    return res.status(404).json({ error: 'Customer not found' });
+  }
+
+  const diagram = db.getDiagramByCustomer(customer.id);
+  if (!diagram) {
+    return res.status(404).json({ error: 'No diagram found' });
+  }
+
+  const version = db.getVersion(diagram.id, parseInt(req.params.version));
+  if (!version) {
+    return res.status(404).json({ error: 'Version not found' });
+  }
+
+  // Delete PNG file
+  if (version.png_path) {
+    mermaid.deletePng(version.png_path);
+  }
+
+  // Delete version
+  db.db.prepare('DELETE FROM diagram_versions WHERE id = ?').run(version.id);
+
+  res.json({ success: true });
+});
+
 // Download PNG
 router.get('/customer/:id/download', (req, res) => {
   const customer = db.getCustomer(req.params.id);

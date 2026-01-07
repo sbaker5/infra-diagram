@@ -16,6 +16,7 @@
       <div class="btn-group">
         <a href="/customer/${customer.id}/edit" class="btn btn-primary">Edit Diagram</a>
         ${currentVersion ? `<a href="/customer/${customer.id}/download${currentVersion.version ? '?v=' + currentVersion.version : ''}" class="btn btn-outline">Download PNG</a>` : ''}
+        <button class="btn btn-danger" onclick="deleteCustomer()">Delete Customer</button>
       </div>
     </div>
 
@@ -42,11 +43,15 @@
             ${versions.length > 0 ? `
               <ul class="version-list">
                 ${versions.map(v => `
-                  <li class="version-item ${currentVersion && currentVersion.version === v.version ? 'active' : ''}"
-                      onclick="window.location.href='/customer/${customer.id}?v=${v.version}'">
-                    <div class="version-item-title">Version ${v.version}</div>
-                    <div class="version-item-date">${new Date(v.created_at).toLocaleString()}</div>
-                    ${v.notes ? `<div class="version-item-notes" style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">${v.notes}</div>` : ''}
+                  <li class="version-item ${currentVersion && currentVersion.version === v.version ? 'active' : ''}">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                      <div onclick="window.location.href='/customer/${customer.id}?v=${v.version}'" style="cursor: pointer; flex: 1;">
+                        <div class="version-item-title">Version ${v.version}</div>
+                        <div class="version-item-date">${new Date(v.created_at).toLocaleString()}</div>
+                        ${v.notes ? `<div class="version-item-notes" style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">${v.notes}</div>` : ''}
+                      </div>
+                      <button class="btn-delete-version" onclick="event.stopPropagation(); deleteVersion(${v.version})" title="Delete version">×</button>
+                    </div>
                   </li>
                 `).join('')}
               </ul>
@@ -79,5 +84,44 @@
         ` : ''}
       </div>
     </div>
+  `,
+  extraScripts: `
+    <script>
+      async function deleteCustomer() {
+        if (!confirm('Delete "${customer.name}" and all diagram versions? This cannot be undone.')) {
+          return;
+        }
+
+        try {
+          const response = await fetch('/customer/${customer.id}/delete', { method: 'POST' });
+          const data = await response.json();
+          if (data.success) {
+            window.location.href = data.redirect || '/';
+          } else {
+            alert('Failed to delete: ' + data.error);
+          }
+        } catch (error) {
+          alert('Failed to delete: ' + error.message);
+        }
+      }
+
+      async function deleteVersion(version) {
+        if (!confirm('Delete version ' + version + '? This cannot be undone.')) {
+          return;
+        }
+
+        try {
+          const response = await fetch('/customer/${customer.id}/version/' + version + '/delete', { method: 'POST' });
+          const data = await response.json();
+          if (data.success) {
+            window.location.reload();
+          } else {
+            alert('Failed to delete: ' + data.error);
+          }
+        } catch (error) {
+          alert('Failed to delete: ' + error.message);
+        }
+      }
+    </script>
   `
 }) %>
