@@ -1,0 +1,25 @@
+services:
+  infra-diagrams:
+    build: .
+    container_name: infra-diagrams
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=production
+      - SESSION_SECRET=${SESSION_SECRET}
+      - APP_PASSWORD=${APP_PASSWORD}
+      - PORT=3000
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.diagrams.rule=Host(`diagrams.srv1252100.hstgr.cloud`)
+      - traefik.http.routers.diagrams.tls=true
+      - traefik.http.routers.diagrams.entrypoints=web,websecure
+      - traefik.http.routers.diagrams.tls.certresolver=mytlschallenge
+      - traefik.http.services.diagrams.loadbalancer.server.port=3000
+    networks:
+      - n8n_default
+
+networks:
+  n8n_default:
+    external: true

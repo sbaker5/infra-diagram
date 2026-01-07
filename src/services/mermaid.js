@@ -19,12 +19,17 @@ const MMDC_PATH = path.join(__dirname, '../../node_modules/.bin/mmdc');
 // Puppeteer config for mermaid-cli
 const PUPPETEER_CONFIG = path.join(__dirname, '../../puppeteer-config.json');
 
-// Create puppeteer config if it doesn't exist
-if (!fs.existsSync(PUPPETEER_CONFIG)) {
-  fs.writeFileSync(PUPPETEER_CONFIG, JSON.stringify({
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  }));
+// Create or update puppeteer config
+const puppeteerConfig = {
+  args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+};
+
+// Use system Chromium if available (Docker environment)
+if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+  puppeteerConfig.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
 }
+
+fs.writeFileSync(PUPPETEER_CONFIG, JSON.stringify(puppeteerConfig, null, 2));
 
 /**
  * Validate Mermaid syntax
