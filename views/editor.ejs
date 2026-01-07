@@ -27,10 +27,10 @@
           <span>Preview</span>
           <div style="display: flex; align-items: center; gap: 1rem;">
             <div class="zoom-controls">
+              <button data-zoom="25">25%</button>
               <button data-zoom="50">50%</button>
-              <button data-zoom="75">75%</button>
-              <button data-zoom="100" class="active">100%</button>
-              <button data-zoom="125">125%</button>
+              <button data-zoom="75" class="active">75%</button>
+              <button data-zoom="100">100%</button>
               <button data-zoom="150">150%</button>
             </div>
             <span id="previewStatus" style="font-size: 0.875rem; color: #666;"></span>
@@ -161,22 +161,24 @@
         }
       });
 
-      // Zoom controls
-      let currentZoom = 100;
+      // Zoom controls - use actual width sizing instead of CSS transform (avoids blur)
+      let currentZoom = 75;
+      const zoomWidths = { 25: '400px', 50: '800px', 75: '1200px', 100: '1600px', 150: '2400px' };
+
+      function applyZoom() {
+        const img = previewContent.querySelector('img');
+        if (img) {
+          img.style.width = zoomWidths[currentZoom];
+          img.style.height = 'auto';
+        }
+      }
+
       document.querySelectorAll('.zoom-controls button').forEach(btn => {
         btn.addEventListener('click', () => {
-          const zoom = btn.dataset.zoom;
-          currentZoom = parseInt(zoom);
-
-          // Update active button
+          currentZoom = parseInt(btn.dataset.zoom);
           document.querySelectorAll('.zoom-controls button').forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
-
-          // Apply zoom to image
-          const img = previewContent.querySelector('img');
-          if (img) {
-            img.className = 'zoom-' + zoom;
-          }
+          applyZoom();
         });
       });
 
@@ -184,10 +186,7 @@
       const originalDoPreview = doPreview;
       doPreview = async function() {
         await originalDoPreview();
-        const img = previewContent.querySelector('img');
-        if (img) {
-          img.className = 'zoom-' + currentZoom;
-        }
+        applyZoom();
       };
     </script>
   `

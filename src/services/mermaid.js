@@ -75,7 +75,7 @@ async function renderToPng(mermaidCode, diagramId, version) {
     fs.writeFileSync(tempInput, mermaidCode);
 
     await execPromise(
-      `${MMDC_PATH} -i "${tempInput}" -o "${outputPath}" -p "${PUPPETEER_CONFIG}" -b white -w 2400 -H 3200 -s 2`,
+      `${MMDC_PATH} -i "${tempInput}" -o "${outputPath}" -p "${PUPPETEER_CONFIG}" -b white -w 1600 -H 4000 -s 3`,
       { timeout: 60000 }
     );
 
@@ -119,38 +119,53 @@ function deletePng(filename) {
 
 /**
  * Generate a sample infrastructure diagram
- * This creates a template showing gaps
+ * This creates a template showing gaps - vertical layout
  */
 function generateSampleDiagram(customerName, knownComponents = {}) {
   const template = require('../config/infra-template');
 
-  let diagram = `flowchart TB
-    subgraph title[" "]
-        direction LR
-        T["${customerName} Infrastructure"]
-    end
-    style title fill:none,stroke:none
+  // Use block-beta for true vertical stacking
+  let diagram = `block-beta
+  columns 1
+
+  block:header
+    title["${customerName} Infrastructure"]
+  end
 
 `;
 
   template.categories.forEach((category, idx) => {
-    diagram += `    subgraph ${category.name.replace(/\s+/g, '')}["${category.name}"]\n`;
-    diagram += `        direction TB\n`;
+    const catId = category.name.replace(/\s+/g, '');
+    diagram += `  block:${catId}\n`;
+    diagram += `    columns 3\n`;
+    diagram += `    ${catId}_header<["${category.name}"]>(down)\n`;
+    diagram += `    space space\n`;
 
     category.components.forEach((component, compIdx) => {
-      const compId = `${category.name.replace(/\s+/g, '')}_${compIdx}`;
+      const compId = `${catId}_${compIdx}`;
       const known = knownComponents[category.name]?.[component];
-
-      if (known) {
-        diagram += `        ${compId}["${component}: ${known}"]\n`;
-        diagram += `        style ${compId} fill:${category.color},color:white\n`;
-      } else {
-        diagram += `        ${compId}["${component}: ???"]\n`;
-        diagram += `        style ${compId} fill:#f0f0f0,stroke:#ccc,stroke-dasharray: 5 5\n`;
-      }
+      const label = known ? `${component}: ${known}` : `${component}: ???`;
+      diagram += `    ${compId}["${label}"]\n`;
     });
 
-    diagram += `    end\n\n`;
+    // Pad to fill row
+    const remainder = category.components.length % 3;
+    if (remainder > 0) {
+      for (let i = 0; i < (3 - remainder); i++) {
+        diagram += `    space\n`;
+      }
+    }
+
+    diagram += `  end\n\n`;
+  });
+
+  // Add styles
+  diagram += `  style header fill:none,stroke:none\n`;
+  diagram += `  style title fill:#1a1a2e,color:white\n`;
+
+  template.categories.forEach((category) => {
+    const catId = category.name.replace(/\s+/g, '');
+    diagram += `  style ${catId}_header fill:${category.color},color:white\n`;
   });
 
   return diagram;
