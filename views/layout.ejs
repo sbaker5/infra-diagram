@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= typeof title !== 'undefined' ? title + ' - ' : '' %>Infrastructure Diagrams</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <% if (typeof extraHead !== 'undefined') { %><%- extraHead %><% } %>
+</head>
+<body>
+  <% if (typeof showNav === 'undefined' || showNav) { %>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <a href="/">Infrastructure Diagrams</a>
+    </div>
+    <div class="nav-links">
+      <a href="/" class="<%= typeof page !== 'undefined' && page === 'dashboard' ? 'active' : '' %>">Dashboard</a>
+      <a href="/unknown" class="<%= typeof page !== 'undefined' && page === 'unknown' ? 'active' : '' %>">Unknown Customers</a>
+      <a href="/logout" class="nav-logout">Logout</a>
+    </div>
+  </nav>
+  <% } %>
+
+  <main class="container">
+    <%- body %>
+  </main>
+
+  <% if (typeof extraScripts !== 'undefined') { %><%- extraScripts %><% } %>
+</body>
+</html>
