@@ -1,0 +1,12 @@
+<%- include('layout', {
+  title: 'Error',
+  body: `
+    <div class="card" style="max-width: 500px; margin: 4rem auto;">
+      <div class="card-body" style="text-align: center; padding: 3rem;">
+        <h1 style="color: var(--danger-color); margin-bottom: 1rem;">Error</h1>
+        <p style="color: var(--text-muted); margin-bottom: 2rem;">${message || 'Something went wrong'}</p>
+        <a href="/" class="btn btn-primary">Go Home</a>
+      </div>
+    </div>
+  `
+}) %>

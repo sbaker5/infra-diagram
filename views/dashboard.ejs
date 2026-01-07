@@ -1,0 +1,64 @@
+<%- include('layout', {
+  title: 'Dashboard',
+  page: 'dashboard',
+  body: `
+    <div class="page-header">
+      <h1>Customers</h1>
+      <div class="search-box">
+        <input type="text" id="search" placeholder="Search customers..." value="${query || ''}">
+        <a href="/customer/new" class="btn btn-primary">+ New Customer</a>
+      </div>
+    </div>
+
+    ${customers.length === 0 ? `
+      <div class="empty-state">
+        <h3>No customers yet</h3>
+        <p>Create your first customer to start building infrastructure diagrams.</p>
+        <a href="/customer/new" class="btn btn-primary" style="margin-top: 1rem;">+ New Customer</a>
+      </div>
+    ` : `
+      <div class="customer-grid">
+        ${customers.map(customer => `
+          <div class="customer-card">
+            <a href="/customer/${customer.id}" class="customer-card-image">
+              ${customer.png_path ? `
+                <img src="/exports/${customer.png_path}" alt="${customer.name} diagram">
+              ` : `
+                <span class="no-diagram">No diagram yet</span>
+              `}
+            </a>
+            <div class="customer-card-body">
+              <h3 class="customer-card-title">
+                <a href="/customer/${customer.id}" style="color: inherit; text-decoration: none;">
+                  ${customer.name}
+                </a>
+                ${customer.is_unknown ? '<span class="badge badge-warning">Unknown</span>' : ''}
+              </h3>
+              <div class="customer-card-meta">
+                ${customer.latest_version ? `Version ${customer.latest_version}` : 'No versions'}
+                ${customer.version_created_at ? ` · ${new Date(customer.version_created_at).toLocaleDateString()}` : ''}
+              </div>
+              <div class="customer-card-actions">
+                <a href="/customer/${customer.id}" class="btn btn-sm btn-outline">View</a>
+                <a href="/customer/${customer.id}/edit" class="btn btn-sm btn-primary">Edit</a>
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `}
+  `,
+  extraScripts: `
+    <script>
+      const searchInput = document.getElementById('search');
+      let timeout;
+      searchInput.addEventListener('input', () => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          const query = searchInput.value;
+          window.location.href = query ? '/?q=' + encodeURIComponent(query) : '/';
+        }, 300);
+      });
+    </script>
+  `
+}) %>

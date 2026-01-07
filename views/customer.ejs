@@ -1,0 +1,83 @@
+<%- include('layout', {
+  title: customer.name,
+  page: 'customer',
+  body: `
+    <div class="customer-header">
+      <div class="customer-info">
+        <h1>
+          ${customer.name}
+          ${customer.is_unknown ? '<span class="badge badge-warning">Unknown</span>' : ''}
+        </h1>
+        <p class="meta">
+          ${versions.length} version${versions.length !== 1 ? 's' : ''}
+          ${sessions.length > 0 ? ` · ${sessions.length} session${sessions.length !== 1 ? 's' : ''} processed` : ''}
+        </p>
+      </div>
+      <div class="btn-group">
+        <a href="/customer/${customer.id}/edit" class="btn btn-primary">Edit Diagram</a>
+        ${currentVersion ? `<a href="/customer/${customer.id}/download${currentVersion.version ? '?v=' + currentVersion.version : ''}" class="btn btn-outline">Download PNG</a>` : ''}
+      </div>
+    </div>
+
+    <div class="diagram-viewer">
+      <div class="diagram-main">
+        <div class="diagram-display">
+          ${currentVersion && currentVersion.png_path ? `
+            <img src="/exports/${currentVersion.png_path}" alt="${customer.name} infrastructure diagram">
+          ` : `
+            <div class="empty-state">
+              <h3>No diagram yet</h3>
+              <p>Create your first version by clicking "Edit Diagram"</p>
+            </div>
+          `}
+        </div>
+      </div>
+
+      <div class="diagram-sidebar">
+        <div class="card">
+          <div class="card-header">
+            <h2>Versions</h2>
+          </div>
+          <div class="card-body" style="padding: 0;">
+            ${versions.length > 0 ? `
+              <ul class="version-list">
+                ${versions.map(v => `
+                  <li class="version-item ${currentVersion && currentVersion.version === v.version ? 'active' : ''}"
+                      onclick="window.location.href='/customer/${customer.id}?v=${v.version}'">
+                    <div class="version-item-title">Version ${v.version}</div>
+                    <div class="version-item-date">${new Date(v.created_at).toLocaleString()}</div>
+                    ${v.notes ? `<div class="version-item-notes" style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">${v.notes}</div>` : ''}
+                  </li>
+                `).join('')}
+              </ul>
+            ` : `
+              <div style="padding: 1rem; color: #666; text-align: center;">
+                No versions yet
+              </div>
+            `}
+          </div>
+        </div>
+
+        ${sessions.length > 0 ? `
+          <div class="card">
+            <div class="card-header">
+              <h2>Sessions</h2>
+            </div>
+            <div class="card-body">
+              <ul class="sessions-list">
+                ${sessions.map(s => `
+                  <li>
+                    <a href="${s.session_url}" target="_blank" style="color: var(--primary-color); text-decoration: none;">
+                      ${s.session_url.split('/').pop().substring(0, 8)}...
+                    </a>
+                    <div style="font-size: 0.8rem; color: #666;">${new Date(s.processed_at).toLocaleDateString()}</div>
+                  </li>
+                `).join('')}
+              </ul>
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `
+}) %>

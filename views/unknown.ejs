@@ -1,0 +1,156 @@
+<%- include('layout', {
+  title: 'Unknown Customers',
+  page: 'unknown',
+  body: `
+    <div class="page-header">
+      <h1>Unknown Customers</h1>
+    </div>
+
+    ${customers.length === 0 ? `
+      <div class="card">
+        <div class="card-body">
+          <div class="empty-state">
+            <h3>No unknown customers</h3>
+            <p>All customers have been identified. Great job!</p>
+          </div>
+        </div>
+      </div>
+    ` : `
+      <div class="card">
+        <div class="card-body" style="padding: 0;">
+          <table class="unknown-table">
+            <thead>
+              <tr>
+                <th>Current Name</th>
+                <th>Version</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${customers.map(customer => `
+                <tr>
+                  <td>
+                    <a href="/customer/${customer.id}" style="color: var(--primary-color); text-decoration: none; font-weight: 500;">
+                      ${customer.name}
+                    </a>
+                  </td>
+                  <td>${customer.latest_version || '-'}</td>
+                  <td>${new Date(customer.created_at).toLocaleDateString()}</td>
+                  <td>
+                    <div class="btn-group">
+                      <a href="/customer/${customer.id}" class="btn btn-sm btn-outline">View</a>
+                      <button class="btn btn-sm btn-primary" onclick="openAssignModal(${customer.id}, '${customer.name}')">Assign</button>
+                    </div>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Assign Modal -->
+      <div id="assignModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div style="background: white; padding: 2rem; border-radius: 12px; max-width: 500px; width: 90%;">
+          <h2 style="margin-bottom: 1.5rem;">Assign Customer</h2>
+          <form id="assignForm">
+            <input type="hidden" id="assignCustomerId">
+
+            <div class="form-group">
+              <label for="assignName">New Name</label>
+              <input type="text" id="assignName" placeholder="Enter customer name">
+            </div>
+
+            <p style="text-align: center; color: #666; margin: 1rem 0;">- or -</p>
+
+            <div class="form-group">
+              <label for="existingCustomer">Merge with Existing</label>
+              <select id="existingCustomer" style="width: 100%; padding: 0.75rem;">
+                <option value="">Select existing customer...</option>
+              </select>
+            </div>
+
+            <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+              <button type="button" class="btn btn-outline" style="flex: 1;" onclick="closeAssignModal()">Cancel</button>
+              <button type="submit" class="btn btn-primary" style="flex: 1;">Assign</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `}
+  `,
+  extraScripts: `
+    <script>
+      const modal = document.getElementById('assignModal');
+      const form = document.getElementById('assignForm');
+      const customerIdInput = document.getElementById('assignCustomerId');
+      const nameInput = document.getElementById('assignName');
+      const existingSelect = document.getElementById('existingCustomer');
+
+      async function openAssignModal(customerId, currentName) {
+        customerIdInput.value = customerId;
+        nameInput.value = currentName.startsWith('Unknown') ? '' : currentName;
+
+        // Load existing customers
+        try {
+          const response = await fetch('/api/customers');
+          const customers = await response.json();
+
+          existingSelect.innerHTML = '<option value="">Select existing customer...</option>';
+          customers
+            .filter(c => !c.is_unknown && c.id !== customerId)
+            .forEach(c => {
+              existingSelect.innerHTML += '<option value="' + c.id + '">' + c.name + '</option>';
+            });
+        } catch (e) {
+          console.error('Failed to load customers:', e);
+        }
+
+        modal.style.display = 'flex';
+      }
+
+      function closeAssignModal() {
+        modal.style.display = 'none';
+      }
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const customerId = customerIdInput.value;
+        const name = nameInput.value.trim();
+        const existingId = existingSelect.value;
+
+        if (!name && !existingId) {
+          alert('Please enter a name or select an existing customer');
+          return;
+        }
+
+        try {
+          const response = await fetch('/customer/' + customerId + '/assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: name || null,
+              existing_customer_id: existingId || null
+            })
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            window.location.href = data.redirect || '/unknown';
+          } else {
+            alert('Failed: ' + data.error);
+          }
+        } catch (error) {
+          alert('Failed: ' + error.message);
+        }
+      });
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeAssignModal();
+      });
+    </script>
+  `
+}) %>

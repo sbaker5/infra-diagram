@@ -1,0 +1,156 @@
+<%- include('layout', {
+  title: 'Edit - ' + customer.name,
+  page: 'editor',
+  body: `
+    <div class="page-header">
+      <h1>Edit: ${customer.name}</h1>
+      <div class="btn-group">
+        <a href="/customer/${customer.id}" class="btn btn-outline">Cancel</a>
+        <button type="button" class="btn btn-primary" id="previewBtn">Preview</button>
+        <button type="button" class="btn btn-success" id="saveBtn">Save New Version</button>
+      </div>
+    </div>
+
+    <div class="editor-container">
+      <div class="editor-pane">
+        <div class="pane-header">
+          <span>Mermaid Code</span>
+          <span id="syntaxStatus" style="font-size: 0.875rem;"></span>
+        </div>
+        <div class="pane-content">
+          <textarea class="editor-textarea" id="mermaidCode" spellcheck="false">${mermaidCode}</textarea>
+        </div>
+      </div>
+
+      <div class="preview-pane">
+        <div class="pane-header">
+          <span>Preview</span>
+          <span id="previewStatus" style="font-size: 0.875rem; color: #666;"></span>
+        </div>
+        <div class="pane-content">
+          <div class="preview-content" id="previewContent">
+            ${currentVersion && currentVersion.png_path ? `
+              <img src="/exports/${currentVersion.png_path}" alt="Current diagram">
+            ` : `
+              <p style="color: #666;">Click "Preview" to render the diagram</p>
+            `}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="editor-footer" style="margin-top: 1rem; background: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: var(--shadow);">
+      <div class="form-group" style="margin: 0; flex: 1;">
+        <input type="text" id="versionNotes" placeholder="Version notes (optional)" style="padding: 0.75rem 1rem;">
+      </div>
+    </div>
+  `,
+  extraScripts: `
+    <script>
+      const mermaidCode = document.getElementById('mermaidCode');
+      const previewBtn = document.getElementById('previewBtn');
+      const saveBtn = document.getElementById('saveBtn');
+      const previewContent = document.getElementById('previewContent');
+      const syntaxStatus = document.getElementById('syntaxStatus');
+      const previewStatus = document.getElementById('previewStatus');
+      const versionNotes = document.getElementById('versionNotes');
+
+      let previewTimeout;
+
+      // Debounced preview
+      mermaidCode.addEventListener('input', () => {
+        clearTimeout(previewTimeout);
+        syntaxStatus.textContent = 'Checking...';
+        syntaxStatus.style.color = '#666';
+        previewTimeout = setTimeout(doPreview, 1000);
+      });
+
+      previewBtn.addEventListener('click', doPreview);
+
+      async function doPreview() {
+        const code = mermaidCode.value;
+        if (!code.trim()) {
+          syntaxStatus.textContent = 'Empty';
+          syntaxStatus.style.color = '#999';
+          return;
+        }
+
+        previewStatus.textContent = 'Rendering...';
+
+        try {
+          const response = await fetch('/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mermaid_code: code })
+          });
+
+          const data = await response.json();
+
+          if (data.valid) {
+            syntaxStatus.textContent = 'Valid';
+            syntaxStatus.style.color = 'var(--success-color)';
+            previewStatus.textContent = '';
+            previewContent.innerHTML = '<img src="' + data.preview_url + '?t=' + Date.now() + '" alt="Preview">';
+          } else {
+            syntaxStatus.textContent = 'Invalid';
+            syntaxStatus.style.color = 'var(--danger-color)';
+            previewStatus.textContent = '';
+            previewContent.innerHTML = '<div class="preview-error"><strong>Syntax Error:</strong><br>' + (data.error || 'Unknown error') + '</div>';
+          }
+        } catch (error) {
+          syntaxStatus.textContent = 'Error';
+          syntaxStatus.style.color = 'var(--danger-color)';
+          previewStatus.textContent = '';
+          previewContent.innerHTML = '<div class="preview-error">Failed to preview: ' + error.message + '</div>';
+        }
+      }
+
+      saveBtn.addEventListener('click', async () => {
+        const code = mermaidCode.value;
+        const notes = versionNotes.value;
+
+        if (!code.trim()) {
+          alert('Please enter some Mermaid code');
+          return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+
+        try {
+          const response = await fetch('/customer/${customer.id}/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mermaid_code: code, notes: notes || null })
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            window.location.href = '/customer/${customer.id}';
+          } else {
+            alert('Failed to save: ' + (data.error || 'Unknown error') + (data.details ? '\\n\\n' + data.details : ''));
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save New Version';
+          }
+        } catch (error) {
+          alert('Failed to save: ' + error.message);
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save New Version';
+        }
+      });
+
+      // Keyboard shortcuts
+      document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+          e.preventDefault();
+          saveBtn.click();
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+          e.preventDefault();
+          previewBtn.click();
+        }
+      });
+    </script>
+  `
+}) %>
