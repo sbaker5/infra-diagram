@@ -25,7 +25,16 @@
       <div class="preview-pane">
         <div class="pane-header">
           <span>Preview</span>
-          <span id="previewStatus" style="font-size: 0.875rem; color: #666;"></span>
+          <div style="display: flex; align-items: center; gap: 1rem;">
+            <div class="zoom-controls">
+              <button data-zoom="50">50%</button>
+              <button data-zoom="75">75%</button>
+              <button data-zoom="100" class="active">100%</button>
+              <button data-zoom="125">125%</button>
+              <button data-zoom="150">150%</button>
+            </div>
+            <span id="previewStatus" style="font-size: 0.875rem; color: #666;"></span>
+          </div>
         </div>
         <div class="pane-content">
           <div class="preview-content" id="previewContent">
@@ -151,6 +160,35 @@
           previewBtn.click();
         }
       });
+
+      // Zoom controls
+      let currentZoom = 100;
+      document.querySelectorAll('.zoom-controls button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const zoom = btn.dataset.zoom;
+          currentZoom = parseInt(zoom);
+
+          // Update active button
+          document.querySelectorAll('.zoom-controls button').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+
+          // Apply zoom to image
+          const img = previewContent.querySelector('img');
+          if (img) {
+            img.className = 'zoom-' + zoom;
+          }
+        });
+      });
+
+      // Apply zoom when new image loads
+      const originalDoPreview = doPreview;
+      doPreview = async function() {
+        await originalDoPreview();
+        const img = previewContent.querySelector('img');
+        if (img) {
+          img.className = 'zoom-' + currentZoom;
+        }
+      };
     </script>
   `
 }) %>

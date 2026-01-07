@@ -75,7 +75,7 @@ async function renderToPng(mermaidCode, diagramId, version) {
     fs.writeFileSync(tempInput, mermaidCode);
 
     await execPromise(
-      `${MMDC_PATH} -i "${tempInput}" -o "${outputPath}" -p "${PUPPETEER_CONFIG}" -b white -w 1200`,
+      `${MMDC_PATH} -i "${tempInput}" -o "${outputPath}" -p "${PUPPETEER_CONFIG}" -b white -w 2400 -H 3200 -s 2`,
       { timeout: 60000 }
     );
 
