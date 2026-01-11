@@ -84,9 +84,247 @@
         ` : ''}
       </div>
     </div>
+
+    ${actionItems && actionItems.length > 0 ? `
+    <div class="action-items-section">
+      <div class="section-header">
+        <h2>Action Items <span class="open-count">${openActionItemCount} open</span></h2>
+        <label class="show-completed-toggle">
+          <input type="checkbox" id="show-completed" />
+          Show completed
+        </label>
+      </div>
+
+      <div class="action-items-container" id="action-items-list">
+        ${['Stephen', 'Customer', 'Vendor', 'Unknown'].map(owner => {
+          const ownerItems = actionItems.filter(i => i.owner === owner);
+          if (ownerItems.length === 0) return '';
+          const ownerClass = owner === 'Stephen' ? 'owner-stephen' : owner === 'Customer' ? 'owner-customer' : owner === 'Vendor' ? 'owner-vendor' : 'owner-unknown';
+          return `
+            <div class="owner-group ${ownerClass}">
+              <h3 class="owner-title">${owner}</h3>
+              <ul class="action-items-list">
+                ${ownerItems.map(item => `
+                  <li class="action-item ${item.completed ? 'completed' : ''}" data-id="${item.id}">
+                    <label class="checkbox-label">
+                      <input type="checkbox" ${item.completed ? 'checked' : ''} onchange="toggleActionItem(${item.id}, this)" />
+                      <span class="item-text">${item.item}</span>
+                    </label>
+                    <span class="item-date">${item.session_date || ''}</span>
+                    ${item.session_title ? `<span class="item-session">${item.session_title}</span>` : ''}
+                  </li>
+                `).join('')}
+              </ul>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+    ` : ''}
+
+    ${sessionNotes && sessionNotes.length > 0 ? `
+    <div class="session-notes-section">
+      <h2>Meeting Notes</h2>
+      ${sessionNotes.map(note => `
+        <div class="session-note-card">
+          <div class="note-header">
+            <span class="badge ${note.call_type === 'technical' ? 'badge-success' : 'badge-info'}">
+              ${note.call_type === 'technical' ? 'Technical' : 'Non-Technical'}
+            </span>
+            <span class="note-title">${note.title || 'Session'}</span>
+            <span class="note-date">${new Date(note.processed_at).toLocaleDateString()}</span>
+          </div>
+
+          ${note.summary ? `
+          <div class="note-summary">
+            <p>${note.summary}</p>
+          </div>
+          ` : ''}
+
+          ${note.call_type === 'technical' && note.gaps && note.gaps.length > 0 ? `
+          <div class="note-gaps">
+            <h4>Infrastructure Gaps</h4>
+            <ul class="gaps-list">
+              ${note.gaps.map(g => `<li>${g.category}: ${g.component}</li>`).join('')}
+            </ul>
+          </div>
+          ` : ''}
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
   `,
   extraScripts: `
+    <style>
+      .action-items-section {
+        margin-top: 2rem;
+        background: #fff;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      }
+
+      .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
+
+      .section-header h2 {
+        margin: 0;
+        font-size: 1.25rem;
+      }
+
+      .open-count {
+        font-size: 0.85rem;
+        color: #6b7280;
+        font-weight: normal;
+        margin-left: 0.5rem;
+      }
+
+      .show-completed-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        cursor: pointer;
+        color: #6b7280;
+        font-size: 0.85rem;
+      }
+
+      .action-items-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+
+      .owner-group {
+        padding: 1rem;
+        border-radius: 8px;
+      }
+
+      .owner-group.owner-stephen { background: #eff6ff; }
+      .owner-group.owner-customer { background: #fefce8; }
+      .owner-group.owner-vendor { background: #f0f5ff; }
+      .owner-group.owner-unknown { background: #f3f4f6; }
+
+      .owner-title {
+        margin: 0 0 0.75rem 0;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #374151;
+      }
+
+      .action-items-section .action-items-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .action-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        padding: 0.5rem;
+        background: rgba(255,255,255,0.7);
+        border-radius: 4px;
+      }
+
+      .action-item.completed {
+        display: none;
+      }
+
+      .action-items-container.show-completed .action-item.completed {
+        display: flex;
+        opacity: 0.6;
+      }
+
+      .action-item.completed .item-text {
+        text-decoration: line-through;
+        color: #9ca3af;
+      }
+
+      .checkbox-label {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        cursor: pointer;
+        flex: 1;
+      }
+
+      .checkbox-label input {
+        margin-top: 0.2rem;
+        cursor: pointer;
+      }
+
+      .item-text {
+        flex: 1;
+        line-height: 1.4;
+      }
+
+      .item-date {
+        font-size: 0.75rem;
+        color: #9ca3af;
+        white-space: nowrap;
+      }
+
+      .item-session {
+        font-size: 0.75rem;
+        color: #6b7280;
+        max-width: 150px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    </style>
     <script>
+      // Action items toggle
+      async function toggleActionItem(id, checkbox) {
+        try {
+          const response = await fetch('/api/action-items/' + id + '/toggle', { method: 'POST' });
+          const data = await response.json();
+          if (data.success) {
+            const li = checkbox.closest('.action-item');
+            if (data.completed) {
+              li.classList.add('completed');
+            } else {
+              li.classList.remove('completed');
+            }
+            // Update open count
+            const countEl = document.querySelector('.open-count');
+            if (countEl) {
+              const currentCount = parseInt(countEl.textContent) || 0;
+              const newCount = data.completed ? currentCount - 1 : currentCount + 1;
+              countEl.textContent = newCount + ' open';
+            }
+          } else {
+            alert('Failed to update: ' + data.error);
+            checkbox.checked = !checkbox.checked;
+          }
+        } catch (error) {
+          alert('Failed to update: ' + error.message);
+          checkbox.checked = !checkbox.checked;
+        }
+      }
+
+      // Show completed toggle
+      document.addEventListener('DOMContentLoaded', function() {
+        const showCompletedCheckbox = document.getElementById('show-completed');
+        const container = document.getElementById('action-items-list');
+        if (showCompletedCheckbox && container) {
+          showCompletedCheckbox.addEventListener('change', function() {
+            if (this.checked) {
+              container.classList.add('show-completed');
+            } else {
+              container.classList.remove('show-completed');
+            }
+          });
+        }
+      });
+
       async function deleteCustomer() {
         if (!confirm('Delete "${customer.name}" and all diagram versions? This cannot be undone.')) {
           return;

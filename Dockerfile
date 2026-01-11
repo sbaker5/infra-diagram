@@ -6,8 +6,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install dependencies (legacy-peer-deps for puppeteer version conflicts)
+RUN npm ci --only=production --legacy-peer-deps
 
 # Production stage
 FROM node:18-slim

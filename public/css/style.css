@@ -669,3 +669,156 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Session Notes Section */
+.session-notes-section {
+  margin-top: 2rem;
+}
+
+.session-notes-section h2 {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+  color: var(--text-color);
+}
+
+.session-note-card {
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.note-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.badge-success {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.note-title {
+  font-weight: 500;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-date {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.note-summary {
+  margin-bottom: 1rem;
+}
+
+.note-summary p {
+  color: var(--text-color);
+  line-height: 1.6;
+}
+
+.note-actions h4,
+.note-gaps h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--text-muted);
+}
+
+.action-items-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.action-items-list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f3f4f6;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.action-items-list li:last-child {
+  border-bottom: none;
+}
+
+.owner-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.owner-stephen .owner-badge {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.owner-customer .owner-badge {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.owner-vendor .owner-badge {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+.note-gaps {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #fef3c7;
+  border-radius: var(--radius);
+}
+
+.gaps-list {
+  margin: 0.5rem 0 0 1.5rem;
+  padding: 0;
+}
+
+.gaps-list li {
+  padding: 0.25rem 0;
+  color: #92400e;
+}
+
+/* Customer type badges for dashboard */
+.customer-badges {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.type-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  border-radius: 4px;
+}
+
+.type-diagram {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.type-notes {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.type-actions {
+  background: #fef3c7;
+  color: #92400e;
+}

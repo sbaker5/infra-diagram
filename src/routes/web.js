@@ -3,6 +3,7 @@ const router = express.Router();
 const path = require('path');
 const db = require('../services/database');
 const mermaid = require('../services/mermaid');
+const wave = require('../services/wave');
 const { isAuthenticated, login, logout } = require('../middleware/auth');
 
 // Public routes
@@ -26,19 +27,29 @@ router.get('/', (req, res) => {
 
   if (query) {
     customers = db.searchCustomers(query);
-    // Enrich with version info
+    // Enrich with version info and action items
     customers = customers.map(c => {
       const diagram = db.getDiagramByCustomer(c.id);
+      const openActionItems = db.getOpenActionItemCount(c.id);
+      const sessionNotes = db.getSessionNotesByCustomer(c.id);
       if (diagram) {
         const version = db.getLatestVersion(diagram.id);
         return {
           ...c,
           latest_version: version?.version,
           png_path: version?.png_path,
-          version_created_at: version?.created_at
+          version_created_at: version?.created_at,
+          hasDiagram: true,
+          hasNotes: sessionNotes.length > 0,
+          openActionItems
         };
       }
-      return c;
+      return {
+        ...c,
+        hasDiagram: false,
+        hasNotes: sessionNotes.length > 0,
+        openActionItems
+      };
     });
   } else {
     customers = db.getAllDiagramsWithLatestVersion();
@@ -52,7 +63,8 @@ router.get('/', (req, res) => {
           is_unknown: d.customer_is_unknown,
           latest_version: d.latest_version,
           png_path: d.png_path,
-          version_created_at: d.version_created_at
+          version_created_at: d.version_created_at,
+          hasDiagram: true
         });
       }
     });
@@ -68,13 +80,44 @@ router.get('/', (req, res) => {
           is_unknown: c.is_unknown,
           latest_version: null,
           png_path: null,
-          version_created_at: null
+          version_created_at: null,
+          hasDiagram: false
         });
       }
+    });
+
+    // Enrich all customers with session notes and action item counts
+    customers = customers.map(c => {
+      const sessionNotes = db.getSessionNotesByCustomer(c.id);
+      const openActionItems = db.getOpenActionItemCount(c.id);
+      return {
+        ...c,
+        hasNotes: sessionNotes.length > 0,
+        openActionItems
+      };
     });
   }
 
   res.render('dashboard', { customers, query });
+});
+
+// Wave Sessions
+router.get('/wave', (req, res) => {
+  const isAuthenticated = wave.isAuthenticated();
+  const sessions = wave.getCachedSessions();
+
+  // Mark which sessions are already processed or skipped
+  const sessionsWithStatus = sessions.map(s => ({
+    ...s,
+    processed: db.isSessionProcessed(s.url),
+    skipped: db.isSessionSkipped(s.url)
+  }));
+
+  res.render('wave', {
+    page: 'wave',
+    sessions: sessionsWithStatus,
+    authenticated: isAuthenticated
+  });
 });
 
 // Unknown customers
@@ -133,12 +176,22 @@ router.get('/customer/:id', async (req, res) => {
     sessions = db.getSessions(diagram.id);
   }
 
+  // Get session notes for this customer
+  const sessionNotes = db.getSessionNotesByCustomer(customer.id);
+
+  // Get action items from the dedicated table
+  const actionItems = db.getActionItemsByCustomer(customer.id, true); // Include completed
+  const openActionItemCount = db.getOpenActionItemCount(customer.id);
+
   res.render('customer', {
     customer,
     diagram,
     versions,
     currentVersion,
-    sessions
+    sessions,
+    sessionNotes,
+    actionItems,
+    openActionItemCount
   });
 });
 

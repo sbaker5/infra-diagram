@@ -34,6 +34,11 @@
                 </a>
                 ${customer.is_unknown ? '<span class="badge badge-warning">Unknown</span>' : ''}
               </h3>
+              <div class="customer-badges">
+                ${customer.hasDiagram ? '<span class="type-badge type-diagram" title="Has infrastructure diagram">Diagram</span>' : ''}
+                ${customer.hasNotes && !customer.hasDiagram ? '<span class="type-badge type-notes" title="Has meeting notes only">Notes</span>' : ''}
+                ${customer.openActionItems > 0 ? `<span class="type-badge type-actions" title="${customer.openActionItems} open action items">${customer.openActionItems} tasks</span>` : ''}
+              </div>
               <div class="customer-card-meta">
                 ${customer.latest_version ? `Version ${customer.latest_version}` : 'No versions'}
                 ${customer.version_created_at ? ` · ${new Date(customer.version_created_at).toLocaleDateString()}` : ''}

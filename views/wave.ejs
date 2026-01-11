@@ -1,0 +1,779 @@
+<%- include('layout', {
+  title: 'Wave Sessions',
+  page: 'wave',
+  body: `
+<div class="page-header">
+  <h1>Wave Sessions</h1>
+  <div class="header-actions">
+    <button id="refresh-btn" class="btn btn-secondary">
+      <span class="refresh-icon">&#8635;</span> Refresh
+    </button>
+  </div>
+</div>
+
+${!authenticated ? `
+<div class="alert alert-warning">
+  <strong>Wave Not Authenticated</strong>
+  <p>You need to set up Wave authentication to fetch sessions.</p>
+  <p>Copy your AuthToken cookie from Wave and paste it below:</p>
+  <form id="auth-form" class="auth-form">
+    <textarea id="auth-token" placeholder="Paste AuthToken here..." rows="3"></textarea>
+    <button type="submit" class="btn btn-primary">Save Token</button>
+  </form>
+</div>
+` : ''}
+
+<div class="sessions-container">
+  <div class="sessions-stats">
+    <span id="session-count">${sessions.length} sessions</span>
+    <span id="unprocessed-count">
+      ${sessions.filter(s => !s.processed && !s.skipped).length} unprocessed
+    </span>
+    <label class="skip-filter">
+      <input type="checkbox" id="show-skipped" />
+      Show skipped (${sessions.filter(s => s.skipped).length})
+    </label>
+  </div>
+
+  <div class="sessions-list" id="sessions-list">
+    ${sessions.length === 0 ? `
+    <div class="empty-state">
+      <p>No sessions found. Click Refresh to fetch from Wave.</p>
+    </div>
+    ` : sessions.map(session => `
+    <div class="session-card ${session.processed ? 'processed' : ''} ${session.skipped ? 'skipped' : ''}" data-session-id="${session.id}" data-session-url="${session.url}">
+      <div class="session-info">
+        <h3 class="session-title">${session.title}</h3>
+        <div class="session-meta">
+          <span class="session-date">${session.date || 'Unknown date'}</span>
+          <span class="session-duration">${session.duration || ''}</span>
+        </div>
+      </div>
+      <div class="session-actions">
+        ${session.processed ? `
+        <span class="badge badge-success">Processed</span>
+        ` : session.skipped ? `
+        <span class="badge badge-muted">Skipped</span>
+        <button class="btn btn-sm btn-outline btn-unskip" data-url="${session.url}">Undo</button>
+        ` : `
+        <button class="btn btn-primary btn-process" data-url="${session.url}" data-title="${session.title}">
+          Process
+        </button>
+        <button class="btn btn-outline btn-skip" data-url="${session.url}" data-title="${session.title}">
+          Skip
+        </button>
+        `}
+        <a href="${session.url}" target="_blank" class="btn btn-link">View</a>
+      </div>
+    </div>
+    `).join('')}
+  </div>
+</div>
+
+<!-- Transcript Modal -->
+<div id="transcript-modal" class="modal" style="display:none;">
+  <div class="modal-content modal-large">
+    <div class="modal-header">
+      <h2 id="modal-title">Session Transcript</h2>
+      <button class="modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="transcript-loading" style="display:none;">
+        <p>Fetching transcript... This may take up to 30 seconds.</p>
+        <div class="loading-spinner"></div>
+      </div>
+      <div id="transcript-content" style="display:none;">
+        <pre id="transcript-text"></pre>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="copy-transcript" class="btn btn-secondary" style="display:none;">Copy Transcript</button>
+      <button class="btn btn-secondary modal-close-btn">Close</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.sessions-container {
+  max-width: 900px;
+}
+
+.sessions-stats {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+#unprocessed-count {
+  color: #d97706;
+  font-weight: 500;
+}
+
+.skip-filter {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+
+.skip-filter input {
+  cursor: pointer;
+}
+
+/* Hide skipped sessions by default */
+.session-card.skipped {
+  display: none;
+}
+
+/* Show skipped when checkbox is checked (via JS class on container) */
+.sessions-list.show-skipped .session-card.skipped {
+  display: flex;
+  opacity: 0.6;
+}
+
+.sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.session-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  transition: all 0.2s;
+}
+
+.session-card:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.session-card.processed {
+  background: #f9fafb;
+  opacity: 0.7;
+}
+
+.session-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-title {
+  font-size: 1rem;
+  font-weight: 500;
+  margin: 0 0 0.25rem 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-meta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.session-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.badge-success {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.badge-muted {
+  background: #e5e7eb;
+  color: #6b7280;
+}
+
+.btn-skip {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid #e5e7eb;
+  color: #6b7280;
+}
+
+.btn-outline:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.btn-process {
+  padding: 0.4rem 1rem;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #6b7280;
+  text-decoration: none;
+  padding: 0.4rem 0.75rem;
+}
+
+.btn-link:hover {
+  color: #3b82f6;
+}
+
+.refresh-icon {
+  font-size: 1.1em;
+}
+
+.auth-form {
+  margin-top: 1rem;
+}
+
+.auth-form textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+  resize: vertical;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 1rem auto;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.modal-large .modal-content {
+  max-width: 800px;
+  max-height: 80vh;
+}
+
+#transcript-text {
+  white-space: pre-wrap;
+  max-height: 50vh;
+  overflow-y: auto;
+  background: #f9fafb;
+  padding: 1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: #6b7280;
+}
+
+/* Result modal styles */
+.result-container {
+  text-align: left;
+}
+
+.result-header {
+  margin-bottom: 1rem;
+}
+
+.badge-info {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.customer-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  padding: 0.75rem;
+  background: #f9fafb;
+  border-radius: 6px;
+}
+
+.customer-edit-row label {
+  flex-shrink: 0;
+}
+
+.customer-edit-row input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  font-size: 0.95rem;
+}
+
+.customer-edit-row input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.result-section {
+  margin-bottom: 1.25rem;
+}
+
+.result-section h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.95rem;
+  color: #374151;
+}
+
+.result-section p {
+  margin: 0;
+  line-height: 1.5;
+  color: #4b5563;
+}
+
+.action-items-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.action-items-list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f3f4f6;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.action-items-list li:last-child {
+  border-bottom: none;
+}
+
+.owner-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.owner-stephen .owner-badge {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.owner-customer .owner-badge {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.owner-vendor .owner-badge {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+.tech-details {
+  padding: 1rem;
+  background: #f0fdf4;
+  border-radius: 6px;
+  border: 1px solid #bbf7d0;
+}
+
+.gaps-box {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #fef3c7;
+  border-radius: 6px;
+}
+
+.gaps-box ul {
+  margin: 0.5rem 0 0 1rem;
+  padding: 0;
+}
+
+.result-actions {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #bbf7d0;
+}
+
+.btn-sm {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const refreshBtn = document.getElementById('refresh-btn');
+  const sessionsList = document.getElementById('sessions-list');
+  const modal = document.getElementById('transcript-modal');
+  const modalTitle = document.getElementById('modal-title');
+  const transcriptLoading = document.getElementById('transcript-loading');
+  const transcriptContent = document.getElementById('transcript-content');
+  const transcriptText = document.getElementById('transcript-text');
+  const copyBtn = document.getElementById('copy-transcript');
+  const showSkippedCheckbox = document.getElementById('show-skipped');
+
+  // Skip filter toggle
+  if (showSkippedCheckbox) {
+    showSkippedCheckbox.addEventListener('change', function() {
+      if (this.checked) {
+        sessionsList.classList.add('show-skipped');
+      } else {
+        sessionsList.classList.remove('show-skipped');
+      }
+    });
+  }
+
+  // Refresh sessions
+  refreshBtn.addEventListener('click', async function() {
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = '<span class="refresh-icon">&#8635;</span> Loading all sessions...';
+
+    try {
+      const res = await fetch('/api/wave/refresh', { method: 'POST' });
+      const sessions = await res.json();
+
+      if (res.ok) {
+        location.reload();
+      } else {
+        alert('Error: ' + (sessions.error || 'Failed to refresh'));
+        refreshBtn.disabled = false;
+        refreshBtn.innerHTML = '<span class="refresh-icon">&#8635;</span> Refresh';
+      }
+    } catch (err) {
+      alert('Error: ' + err.message);
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '<span class="refresh-icon">&#8635;</span> Refresh';
+    }
+  });
+
+  // Skip buttons
+  document.querySelectorAll('.btn-skip').forEach(btn => {
+    btn.addEventListener('click', async function() {
+      const url = this.dataset.url;
+      const title = this.dataset.title;
+      const card = this.closest('.session-card');
+
+      this.disabled = true;
+      this.textContent = 'Skipping...';
+
+      try {
+        const res = await fetch('/api/skip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_url: url, title: title })
+        });
+
+        if (res.ok) {
+          // Update UI to show skipped state
+          const actionsDiv = card.querySelector('.session-actions');
+          actionsDiv.innerHTML = \`
+            <span class="badge badge-muted">Skipped</span>
+            <button class="btn btn-sm btn-outline btn-unskip" data-url="\${url}">Undo</button>
+            <a href="\${url}" target="_blank" class="btn btn-link">View</a>
+          \`;
+          // Rebind unskip handler
+          actionsDiv.querySelector('.btn-unskip').addEventListener('click', handleUnskip);
+        } else {
+          const data = await res.json();
+          alert('Error: ' + (data.error || 'Failed to skip'));
+          this.disabled = false;
+          this.textContent = 'Skip';
+        }
+      } catch (err) {
+        alert('Error: ' + err.message);
+        this.disabled = false;
+        this.textContent = 'Skip';
+      }
+    });
+  });
+
+  // Unskip handler function
+  async function handleUnskip() {
+    const url = this.dataset.url;
+    const card = this.closest('.session-card');
+
+    this.disabled = true;
+    this.textContent = 'Restoring...';
+
+    try {
+      const res = await fetch('/api/unskip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_url: url })
+      });
+
+      if (res.ok) {
+        // Reload to get fresh state
+        location.reload();
+      } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed to unskip'));
+        this.disabled = false;
+        this.textContent = 'Undo';
+      }
+    } catch (err) {
+      alert('Error: ' + err.message);
+      this.disabled = false;
+      this.textContent = 'Undo';
+    }
+  }
+
+  // Bind existing unskip buttons
+  document.querySelectorAll('.btn-unskip').forEach(btn => {
+    btn.addEventListener('click', handleUnskip);
+  });
+
+  // Store current session data for customer name editing
+  let currentSessionData = null;
+
+  // Process buttons - full pipeline
+  document.querySelectorAll('.btn-process').forEach(btn => {
+    btn.addEventListener('click', async function() {
+      const url = this.dataset.url;
+      const card = this.closest('.session-card');
+      const title = card.querySelector('.session-title').textContent;
+      const originalText = this.innerHTML;
+
+      // Update button to show processing
+      this.disabled = true;
+      this.innerHTML = 'Processing...';
+
+      // Show modal with loading
+      modalTitle.textContent = 'Processing: ' + title;
+      document.getElementById('transcript-loading').querySelector('p').textContent =
+        'Analyzing transcript... This may take 30-60 seconds.';
+      transcriptLoading.style.display = 'block';
+      transcriptContent.style.display = 'none';
+      copyBtn.style.display = 'none';
+      modal.style.display = 'flex';
+
+      try {
+        const res = await fetch('/api/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_url: url })
+        });
+
+        const data = await res.json();
+        currentSessionData = { ...data, sessionUrl: url };
+
+        if (res.ok) {
+          const isTechnical = data.callType === 'technical';
+          const components = data.components || [];
+          const gaps = data.gaps || [];
+          const actionItems = data.actionItems || [];
+
+          let resultHtml = '<div class="result-container">';
+
+          // Header with call type badge
+          resultHtml += '<div class="result-header">';
+          resultHtml += '<span class="badge ' + (isTechnical ? 'badge-success' : 'badge-info') + '">';
+          resultHtml += isTechnical ? 'Technical Call' : 'Non-Technical Call';
+          resultHtml += '</span></div>';
+
+          // Customer name with edit
+          resultHtml += '<div class="customer-edit-row">';
+          resultHtml += '<label><strong>Customer:</strong></label>';
+          resultHtml += '<input type="text" id="edit-customer-name" value="' + (data.customerName || 'Unknown') + '" />';
+          resultHtml += '<button id="save-customer-name" class="btn btn-sm btn-secondary">Save</button>';
+          resultHtml += '</div>';
+
+          // Summary
+          if (data.summary) {
+            resultHtml += '<div class="result-section">';
+            resultHtml += '<h4>Summary</h4>';
+            resultHtml += '<p>' + data.summary + '</p>';
+            resultHtml += '</div>';
+          }
+
+          // Action items
+          if (actionItems.length > 0) {
+            resultHtml += '<div class="result-section">';
+            resultHtml += '<h4>Action Items</h4>';
+            resultHtml += '<ul class="action-items-list">';
+            actionItems.forEach(item => {
+              const ownerClass = item.owner === 'Stephen' ? 'owner-stephen' :
+                                item.owner === 'Customer' ? 'owner-customer' : 'owner-vendor';
+              resultHtml += '<li class="' + ownerClass + '">';
+              resultHtml += '<span class="owner-badge">' + item.owner + '</span> ';
+              resultHtml += item.item;
+              resultHtml += '</li>';
+            });
+            resultHtml += '</ul></div>';
+          }
+
+          // Technical call details
+          if (isTechnical) {
+            resultHtml += '<div class="result-section tech-details">';
+            resultHtml += '<p><strong>Components found:</strong> ' + components.length + '</p>';
+            resultHtml += '<p><strong>Gaps identified:</strong> ' + gaps.length + '</p>';
+
+            if (gaps.length > 0) {
+              resultHtml += '<div class="gaps-box">';
+              resultHtml += '<strong>Infrastructure Gaps:</strong><ul>';
+              gaps.forEach(g => {
+                resultHtml += '<li>' + g.category + ': ' + g.component + '</li>';
+              });
+              resultHtml += '</ul></div>';
+            }
+
+            resultHtml += '<div class="result-actions">';
+            resultHtml += '<a href="/customer/' + data.customerId + '" class="btn btn-primary">View Diagram</a>';
+            resultHtml += '</div></div>';
+          }
+
+          resultHtml += '</div>';
+
+          transcriptText.innerHTML = resultHtml;
+          transcriptLoading.style.display = 'none';
+          transcriptContent.style.display = 'block';
+
+          // Bind customer name save button
+          const saveBtn = document.getElementById('save-customer-name');
+          if (saveBtn) {
+            saveBtn.addEventListener('click', async function() {
+            const newName = document.getElementById('edit-customer-name').value.trim();
+            if (!newName) {
+              alert('Please enter a customer name');
+              return;
+            }
+
+            this.disabled = true;
+            this.textContent = 'Saving...';
+
+            try {
+              const updateRes = await fetch('/api/session/update-customer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  session_url: currentSessionData.sessionUrl,
+                  customer_name: newName
+                })
+              });
+
+              if (updateRes.ok) {
+                this.textContent = 'Saved!';
+                setTimeout(() => {
+                  this.textContent = 'Save';
+                  this.disabled = false;
+                }, 1500);
+              } else {
+                const errData = await updateRes.json();
+                alert('Error: ' + (errData.error || 'Failed to save'));
+                this.disabled = false;
+                this.textContent = 'Save';
+              }
+            } catch (err) {
+              alert('Error: ' + err.message);
+              this.disabled = false;
+              this.textContent = 'Save';
+            }
+          });
+          }
+
+          // Mark as processed
+          card.classList.add('processed');
+          this.outerHTML = '<span class="badge badge-success">Processed</span>';
+        } else {
+          transcriptText.textContent = 'Error: ' + (data.error || 'Processing failed');
+          if (data.details) {
+            transcriptText.textContent += '\\n\\nDetails: ' + data.details;
+          }
+          transcriptLoading.style.display = 'none';
+          transcriptContent.style.display = 'block';
+
+          // Re-enable button
+          this.disabled = false;
+          this.innerHTML = originalText;
+        }
+      } catch (err) {
+        transcriptText.textContent = 'Error: ' + err.message;
+        transcriptLoading.style.display = 'none';
+        transcriptContent.style.display = 'block';
+
+        // Re-enable button
+        this.disabled = false;
+        this.innerHTML = originalText;
+      }
+    });
+  });
+
+  // Copy transcript
+  copyBtn.addEventListener('click', function() {
+    navigator.clipboard.writeText(transcriptText.textContent);
+    copyBtn.textContent = 'Copied!';
+    setTimeout(() => { copyBtn.textContent = 'Copy Transcript'; }, 2000);
+  });
+
+  // Close modal
+  modal.querySelectorAll('.modal-close, .modal-close-btn').forEach(el => {
+    el.addEventListener('click', function() {
+      modal.style.display = 'none';
+    });
+  });
+
+  modal.addEventListener('click', function(e) {
+    if (e.target === modal) {
+      modal.style.display = 'none';
+    }
+  });
+
+  // Auth form
+  const authForm = document.getElementById('auth-form');
+  if (authForm) {
+    authForm.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const token = document.getElementById('auth-token').value.trim();
+
+      if (!token) {
+        alert('Please enter a token');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/wave/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ auth_token: token })
+        });
+
+        if (res.ok) {
+          location.reload();
+        } else {
+          const data = await res.json();
+          alert('Error: ' + (data.error || 'Failed to save token'));
+        }
+      } catch (err) {
+        alert('Error: ' + err.message);
+      }
+    });
+  }
+});
+</script>
+  `
+}) %>
