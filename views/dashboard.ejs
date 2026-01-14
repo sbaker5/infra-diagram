@@ -41,7 +41,7 @@
               </div>
               <div class="customer-card-meta">
                 ${customer.latest_version ? `Version ${customer.latest_version}` : 'No versions'}
-                ${customer.version_created_at ? ` · ${new Date(customer.version_created_at).toLocaleDateString()}` : ''}
+                ${customer.latest_session_date ? ` · ${customer.latest_session_date}` : ''}
               </div>
               <div class="customer-card-actions">
                 <a href="/customer/${customer.id}" class="btn btn-sm btn-outline">View</a>

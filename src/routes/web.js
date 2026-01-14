@@ -32,13 +32,14 @@ router.get('/', (req, res) => {
       const diagram = db.getDiagramByCustomer(c.id);
       const openActionItems = db.getOpenActionItemCount(c.id);
       const sessionNotes = db.getSessionNotesByCustomer(c.id);
+      const latestSessionDate = sessionNotes.length > 0 ? sessionNotes[0].session_date : null;
       if (diagram) {
         const version = db.getLatestVersion(diagram.id);
         return {
           ...c,
           latest_version: version?.version,
           png_path: version?.png_path,
-          version_created_at: version?.created_at,
+          latest_session_date: latestSessionDate,
           hasDiagram: true,
           hasNotes: sessionNotes.length > 0,
           openActionItems
@@ -48,6 +49,7 @@ router.get('/', (req, res) => {
         ...c,
         hasDiagram: false,
         hasNotes: sessionNotes.length > 0,
+        latest_session_date: latestSessionDate,
         openActionItems
       };
     });
@@ -63,7 +65,7 @@ router.get('/', (req, res) => {
           is_unknown: d.customer_is_unknown,
           latest_version: d.latest_version,
           png_path: d.png_path,
-          version_created_at: d.version_created_at,
+          latest_session_date: d.latest_session_date,
           hasDiagram: true
         });
       }
@@ -80,7 +82,7 @@ router.get('/', (req, res) => {
           is_unknown: c.is_unknown,
           latest_version: null,
           png_path: null,
-          version_created_at: null,
+          latest_session_date: null,
           hasDiagram: false
         });
       }
@@ -90,10 +92,14 @@ router.get('/', (req, res) => {
     customers = customers.map(c => {
       const sessionNotes = db.getSessionNotesByCustomer(c.id);
       const openActionItems = db.getOpenActionItemCount(c.id);
+      // Get latest session date if not already set
+      const latestSessionDate = c.latest_session_date ||
+        (sessionNotes.length > 0 ? sessionNotes[0].session_date : null);
       return {
         ...c,
         hasNotes: sessionNotes.length > 0,
-        openActionItems
+        openActionItems,
+        latest_session_date: latestSessionDate
       };
     });
   }

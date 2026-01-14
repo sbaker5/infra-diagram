@@ -179,7 +179,8 @@ const diagramOps = {
 
   getAllWithLatestVersion: db.prepare(`
     SELECT d.*, c.name as customer_name, c.is_unknown as customer_is_unknown,
-           v.version as latest_version, v.png_path, v.created_at as version_created_at
+           v.version as latest_version, v.png_path, v.created_at as version_created_at,
+           (SELECT sn.session_date FROM session_notes sn WHERE sn.customer_id = c.id ORDER BY sn.session_date DESC LIMIT 1) as latest_session_date
     FROM diagrams d
     JOIN customers c ON d.customer_id = c.id
     LEFT JOIN diagram_versions v ON d.id = v.diagram_id
