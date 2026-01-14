@@ -1,5 +1,11 @@
 # Infrastructure Diagram App
 
+## Claude Instructions
+
+- **Commit frequently**: After completing any significant work, use `/commit` to commit changes
+- **Push after commits**: Always push to GitHub after committing
+- **Don't batch**: Commit after each logical unit of work, not at the end of a session
+
 ## Project Overview
 
 A meeting intelligence application that:
