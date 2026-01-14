@@ -934,3 +934,29 @@ body {
     transform: translateX(100%);
   }
 }
+
+/* Dashboard - Clickable customer name for edit */
+.customer-name-edit {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.customer-name-edit:hover {
+  color: var(--primary-color);
+}
+
+.customer-name-edit .edit-icon {
+  font-size: 0.8rem;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.customer-name-edit:hover .edit-icon {
+  opacity: 0.6;
+}
+
+.customer-name-edit .badge {
+  cursor: pointer;
+}

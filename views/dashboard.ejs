@@ -29,10 +29,10 @@
             </a>
             <div class="customer-card-body">
               <h3 class="customer-card-title">
-                <a href="/customer/${customer.id}" style="color: inherit; text-decoration: none;">
+                <span class="customer-name-edit" onclick="openEditModal(${customer.id}, \`${customer.name.replace(/`/g, '\\`')}\`)" title="Click to edit">
                   ${customer.name}
-                </a>
-                ${customer.is_unknown ? '<span class="badge badge-warning">Unknown</span>' : ''}
+                  ${customer.is_unknown ? '<span class="badge badge-warning">Unknown</span>' : '<span class="edit-icon">✎</span>'}
+                </span>
               </h3>
               <div class="customer-badges">
                 ${customer.hasDiagram ? '<span class="type-badge type-diagram" title="Has infrastructure diagram">Diagram</span>' : ''}
@@ -42,10 +42,6 @@
               <div class="customer-card-meta">
                 ${customer.latest_version ? `Version ${customer.latest_version}` : 'No versions'}
                 ${customer.latest_session_date ? ` · ${customer.latest_session_date}` : ''}
-              </div>
-              <div class="customer-card-actions">
-                <a href="/customer/${customer.id}" class="btn btn-sm btn-outline">View</a>
-                <button class="btn btn-sm btn-secondary" onclick="openEditModal(${customer.id}, \`${customer.name.replace(/`/g, '\\`')}\`)">Edit</button>
               </div>
             </div>
           </div>
