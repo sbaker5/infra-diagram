@@ -4,6 +4,7 @@ const db = require('../services/database');
 const mermaid = require('../services/mermaid');
 const wave = require('../services/wave');
 const perplexity = require('../services/perplexity');
+const { processSession, validateSession, validateServices } = require('../services/session-processor');
 const { isAuthenticated } = require('../middleware/auth');
 
 // All API routes require authentication
@@ -350,6 +351,17 @@ router.get('/wave/sessions', async (req, res) => {
 });
 
 /**
+ * GET /api/wave/status
+ * Get Wave service status including refresh state
+ */
+router.get('/wave/status', (req, res) => {
+  res.json({
+    authenticated: wave.isAuthenticated(),
+    ...wave.getRefreshStatus()
+  });
+});
+
+/**
  * POST /api/wave/refresh
  * Force refresh sessions from Wave
  */
@@ -442,123 +454,26 @@ router.post('/process', async (req, res) => {
       return res.status(400).json({ error: 'session_url required' });
     }
 
-    // Check if already processed or skipped
-    if (db.isSessionProcessed(session_url)) {
-      return res.status(409).json({ error: 'Session already processed', session_url });
-    }
-    if (db.isSessionSkipped(session_url)) {
-      return res.status(409).json({ error: 'Session was skipped', session_url });
+    // Validate session can be processed
+    const sessionValidation = validateSession(session_url);
+    if (!sessionValidation.valid) {
+      return res.status(409).json({ error: sessionValidation.error, session_url });
     }
 
-    // Check services are configured
-    if (!wave.isAuthenticated()) {
-      return res.status(400).json({ error: 'Wave not authenticated' });
-    }
-    if (!perplexity.isConfigured()) {
-      return res.status(400).json({ error: 'Perplexity API not configured' });
+    // Validate services are configured
+    const serviceValidation = validateServices();
+    if (!serviceValidation.valid) {
+      return res.status(400).json({ error: serviceValidation.error });
     }
 
-    // Step 1: Fetch transcript
-    console.log('Processing: Fetching transcript from', session_url);
-    const transcript = await wave.fetchTranscript(session_url);
-
-    if (!transcript || transcript.length < 100) {
-      return res.status(400).json({ error: 'Failed to fetch transcript or transcript too short' });
-    }
-
-    // Step 2: Analyze with LLM (classifies call, extracts summary, action items, infrastructure)
-    console.log('Processing: Analyzing with Perplexity...');
-    const analysis = await perplexity.analyzeTranscript(transcript, title);
-
-    const customerName = analysis.customerName || 'Unknown Customer';
-    const isUnknown = !analysis.customerName;
-    let result = { customerId: null, diagramId: null };
-
-    // Step 3: For technical calls, create diagram
-    if (analysis.callType === 'technical' && analysis.mermaidCode) {
-      // Validate Mermaid code
-      const validation = await mermaid.validate(analysis.mermaidCode);
-      if (!validation.valid) {
-        console.warn('Generated Mermaid invalid, saving without diagram:', validation.error);
-        analysis.mermaidCode = null;
-      } else {
-        // Create/update diagram
-        const notes = `Extracted from Wave session: ${session_url}\n\nSummary: ${analysis.summary}`;
-
-        result = db.addDiagramVersion(
-          customerName,
-          analysis.mermaidCode,
-          session_url,
-          notes,
-          isUnknown
-        );
-
-        // Render PNG
-        try {
-          const pngFilename = await mermaid.renderToPng(
-            analysis.mermaidCode,
-            result.diagramId,
-            result.version
-          );
-          db.updateVersionPngPath(result.versionId, pngFilename);
-          result.png_path = pngFilename;
-        } catch (renderError) {
-          console.error('PNG render failed:', renderError);
-        }
-      }
-    }
-
-    // Step 4: Get or create customer for non-technical calls
-    if (!result.customerId && customerName !== 'Unknown Customer') {
-      const existing = db.searchCustomers(customerName);
-      if (existing.length > 0) {
-        result.customerId = existing[0].id;
-      } else {
-        result.customerId = db.createCustomer(customerName, false);
-      }
-    }
-
-    // Step 5: Save session notes (summary, action items, etc.)
-    const sessionNoteId = db.saveSessionNotes(
-      session_url,
-      result.customerId,
-      analysis.callType,
+    // Process session using shared logic
+    const result = await processSession({
+      sessionUrl: session_url,
       title,
-      analysis.summary,
-      analysis.actionItems,
-      analysis.components,
-      analysis.gaps
-    );
-
-    // Step 6: Save action items to dedicated table
-    if (result.customerId && analysis.actionItems && analysis.actionItems.length > 0) {
-      // Try to get session date from cached sessions
-      const cachedSessions = wave.getCachedSessions();
-      const session = cachedSessions.find(s => s.url === session_url);
-      const sessionDate = session?.date || new Date().toISOString().split('T')[0];
-
-      db.saveActionItemsFromSession(
-        sessionNoteId,
-        result.customerId,
-        analysis.actionItems,
-        sessionDate,
-        title
-      );
-    }
-
-    res.json({
-      success: true,
-      callType: analysis.callType,
-      customerName,
-      customerId: result.customerId,
-      diagramId: result.diagramId,
-      summary: analysis.summary,
-      actionItems: analysis.actionItems,
-      components: analysis.components,
-      gaps: analysis.gaps,
-      hasDiagram: !!result.diagramId
+      logPrefix: 'Processing: '
     });
 
+    res.json(result);
   } catch (error) {
     console.error('Processing error:', error);
     res.status(500).json({ error: error.message });
@@ -639,9 +554,9 @@ router.post('/session/update-customer', (req, res) => {
     const sessionNote = db.getSessionNotes(session_url);
     if (sessionNote && sessionNote.call_type === 'technical') {
       // Find the diagram and update customer
-      const sessions = db.db.prepare('SELECT diagram_id FROM diagram_sessions WHERE session_url = ?').get(session_url);
-      if (sessions) {
-        db.db.prepare('UPDATE diagrams SET customer_id = ? WHERE id = ?').run(customerId, sessions.diagram_id);
+      const diagramSession = db.getDiagramSessionByUrl(session_url);
+      if (diagramSession) {
+        db.updateDiagramCustomer(diagramSession.diagram_id, customerId);
       }
     }
 
@@ -722,6 +637,290 @@ router.get('/customers/:id/action-items', (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+/**
+ * POST /api/action-items/:id/move
+ * Move an action item to a different customer
+ * Body: { customer_id: number } or { customer_name: string }
+ */
+router.post('/action-items/:id/move', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { customer_id, customer_name } = req.body;
+
+    const item = db.getActionItem(id);
+    if (!item) {
+      return res.status(404).json({ error: 'Action item not found' });
+    }
+
+    let targetCustomerId = customer_id;
+
+    // If customer_name provided, find or create customer
+    if (!targetCustomerId && customer_name) {
+      const existing = db.searchCustomers(customer_name);
+      if (existing.length > 0) {
+        targetCustomerId = existing[0].id;
+      } else {
+        targetCustomerId = db.createCustomer(customer_name.trim(), false);
+      }
+    }
+
+    if (!targetCustomerId) {
+      return res.status(400).json({ error: 'customer_id or customer_name required' });
+    }
+
+    const targetCustomer = db.getCustomer(targetCustomerId);
+    if (!targetCustomer) {
+      return res.status(404).json({ error: 'Target customer not found' });
+    }
+
+    const updated = db.moveActionItemToCustomer(id, targetCustomerId);
+    res.json({
+      success: true,
+      item: updated,
+      newCustomerId: targetCustomerId,
+      newCustomerName: targetCustomer.name
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/action-items/:id
+ * Update an action item (owner, text, date)
+ * Body: { owner?: string, item?: string, session_date?: string }
+ */
+router.put('/action-items/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { owner, item, session_date } = req.body;
+
+    const existing = db.getActionItem(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Action item not found' });
+    }
+
+    const updated = db.updateActionItem(
+      id,
+      owner || existing.owner,
+      item || existing.item,
+      session_date || existing.session_date
+    );
+
+    res.json({ success: true, item: updated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/diagrams/:id/keep-notes
+ * Delete a diagram but keep the session notes and action items
+ */
+router.delete('/diagrams/:id/keep-notes', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const diagram = db.getDiagram(id);
+
+    if (!diagram) {
+      return res.status(404).json({ error: 'Diagram not found' });
+    }
+
+    const deleted = db.deleteDiagramKeepActionItems(id);
+    if (!deleted) {
+      return res.status(500).json({ error: 'Failed to delete diagram' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Diagram deleted, action items preserved'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Queue Management Endpoints
+// ============================================
+
+/**
+ * GET /api/queue/status
+ * Get current queue status (for polling)
+ */
+router.get('/queue/status', (req, res) => {
+  try {
+    const queueWorker = require('../services/queue-worker');
+    res.json(queueWorker.getStatus());
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/queue
+ * Add a single session to the processing queue
+ * Body: { session_url: string, title?: string }
+ */
+router.post('/queue', (req, res) => {
+  try {
+    const { session_url, title } = req.body;
+
+    if (!session_url) {
+      return res.status(400).json({ error: 'session_url required' });
+    }
+
+    // Check if already processed or skipped
+    if (db.isSessionProcessed(session_url)) {
+      return res.status(409).json({ error: 'Session already processed', session_url });
+    }
+    if (db.isSessionSkipped(session_url)) {
+      return res.status(409).json({ error: 'Session was skipped', session_url });
+    }
+    if (db.isSessionQueued(session_url)) {
+      return res.status(409).json({ error: 'Session already queued', session_url });
+    }
+
+    const added = db.addToQueue(session_url, title);
+    if (!added) {
+      return res.status(409).json({ error: 'Session already in queue', session_url });
+    }
+
+    const job = db.getQueueJobByUrl(session_url);
+    res.status(201).json({ success: true, job });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/queue/bulk
+ * Add multiple sessions to the queue
+ * Body: { sessions: [{ session_url, title }], limit?: number }
+ * If limit is set, only queue that many sessions
+ */
+router.post('/queue/bulk', (req, res) => {
+  try {
+    const { sessions, limit } = req.body;
+
+    if (!sessions || !Array.isArray(sessions)) {
+      return res.status(400).json({ error: 'sessions array required' });
+    }
+
+    const toQueue = limit ? sessions.slice(0, limit) : sessions;
+    const results = {
+      queued: 0,
+      skipped: 0,
+      alreadyProcessed: 0,
+      alreadyQueued: 0,
+      errors: []
+    };
+
+    for (const session of toQueue) {
+      const { session_url, title } = session;
+
+      if (!session_url) {
+        results.errors.push({ session_url: null, error: 'Missing session_url' });
+        continue;
+      }
+
+      // Check status
+      if (db.isSessionProcessed(session_url)) {
+        results.alreadyProcessed++;
+        continue;
+      }
+      if (db.isSessionSkipped(session_url)) {
+        results.skipped++;
+        continue;
+      }
+      if (db.isSessionQueued(session_url)) {
+        results.alreadyQueued++;
+        continue;
+      }
+
+      try {
+        const added = db.addToQueue(session_url, title);
+        if (added) {
+          results.queued++;
+        } else {
+          results.alreadyQueued++;
+        }
+      } catch (e) {
+        results.errors.push({ session_url, error: e.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      ...results,
+      totalRequested: toQueue.length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/queue/:id
+ * Cancel a pending job (only pending jobs can be cancelled)
+ */
+router.delete('/queue/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const job = db.getQueueJob(id);
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    if (job.status !== 'pending') {
+      return res.status(400).json({ error: `Cannot cancel job with status: ${job.status}` });
+    }
+
+    const deleted = db.deleteFromQueue(id);
+    if (!deleted) {
+      return res.status(400).json({ error: 'Could not cancel job' });
+    }
+
+    res.json({ success: true, deleted: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/queue/:id/retry
+ * Retry a failed job
+ */
+router.post('/queue/:id/retry', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const job = db.getQueueJob(id);
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    if (job.status !== 'failed') {
+      return res.status(400).json({ error: `Cannot retry job with status: ${job.status}` });
+    }
+
+    const retried = db.retryQueueJob(id);
+    if (!retried) {
+      return res.status(400).json({ error: 'Could not retry job' });
+    }
+
+    const updatedJob = db.getQueueJob(id);
+    res.json({ success: true, job: updatedJob });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// End Queue Management Endpoints
+// ============================================
 
 /**
  * POST /api/extract

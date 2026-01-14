@@ -16,15 +16,27 @@
       <div class="btn-group">
         <a href="/customer/${customer.id}/edit" class="btn btn-primary">Edit Diagram</a>
         ${currentVersion ? `<a href="/customer/${customer.id}/download${currentVersion.version ? '?v=' + currentVersion.version : ''}" class="btn btn-outline">Download PNG</a>` : ''}
+        ${diagram ? `<button class="btn btn-outline" onclick="discardDiagram()" title="Delete diagram but keep action items and notes">Discard Diagram</button>` : ''}
         <button class="btn btn-danger" onclick="deleteCustomer()">Delete Customer</button>
       </div>
     </div>
 
     <div class="diagram-viewer">
       <div class="diagram-main">
-        <div class="diagram-display">
+        ${currentVersion && currentVersion.png_path ? `
+        <div class="diagram-controls">
+          <div class="zoom-controls">
+            <button data-zoom="25">25%</button>
+            <button data-zoom="50">50%</button>
+            <button data-zoom="75" class="active">75%</button>
+            <button data-zoom="100">100%</button>
+            <button data-zoom="150">150%</button>
+          </div>
+        </div>
+        ` : ''}
+        <div class="diagram-display" id="diagram-display">
           ${currentVersion && currentVersion.png_path ? `
-            <img src="/exports/${currentVersion.png_path}" alt="${customer.name} infrastructure diagram">
+            <img id="diagram-image" src="/exports/${currentVersion.png_path}" alt="${customer.name} infrastructure diagram">
           ` : `
             <div class="empty-state">
               <h3>No diagram yet</h3>
@@ -96,10 +108,10 @@
       </div>
 
       <div class="action-items-container" id="action-items-list">
-        ${['Stephen', 'Customer', 'Vendor', 'Unknown'].map(owner => {
+        ${['Stephen', 'Customer', 'Vendor', 'Partner', 'Unknown'].map(owner => {
           const ownerItems = actionItems.filter(i => i.owner === owner);
           if (ownerItems.length === 0) return '';
-          const ownerClass = owner === 'Stephen' ? 'owner-stephen' : owner === 'Customer' ? 'owner-customer' : owner === 'Vendor' ? 'owner-vendor' : 'owner-unknown';
+          const ownerClass = owner === 'Stephen' ? 'owner-stephen' : owner === 'Customer' ? 'owner-customer' : owner === 'Vendor' ? 'owner-vendor' : owner === 'Partner' ? 'owner-partner' : 'owner-unknown';
           return `
             <div class="owner-group ${ownerClass}">
               <h3 class="owner-title">${owner}</h3>
@@ -112,6 +124,7 @@
                     </label>
                     <span class="item-date">${item.session_date || ''}</span>
                     ${item.session_title ? `<span class="item-session">${item.session_title}</span>` : ''}
+                    <button class="btn-edit-item" onclick="editActionItem(${item.id}, '${item.owner}', \`${item.item.replace(/`/g, '\\`').replace(/\\/g, '\\\\')}\`, '${item.session_date || ''}')" title="Edit or move">&#9998;</button>
                   </li>
                 `).join('')}
               </ul>
@@ -122,17 +135,60 @@
     </div>
     ` : ''}
 
+    <!-- Edit Action Item Modal -->
+    <div id="edit-item-modal" class="modal" style="display:none;">
+      <div class="modal-content modal-small">
+        <div class="modal-header">
+          <h2>Edit Action Item</h2>
+          <button class="modal-close" onclick="closeEditModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="edit-item-id" />
+          <div class="form-group">
+            <label>Owner</label>
+            <select id="edit-item-owner">
+              <option value="Stephen">Stephen</option>
+              <option value="Customer">Customer</option>
+              <option value="Vendor">Vendor</option>
+              <option value="Partner">Partner</option>
+              <option value="Unknown">Unknown</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Action Item</label>
+            <textarea id="edit-item-text" rows="3"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Date (from recording)</label>
+            <input type="date" id="edit-item-date" />
+          </div>
+          <div class="form-group">
+            <label>Move to Customer</label>
+            <input type="text" id="edit-item-customer" placeholder="Leave empty to keep current" list="customer-list" />
+            <datalist id="customer-list">
+              ${allCustomers ? allCustomers.map(c => `<option value="${c.name}">`).join('') : ''}
+            </datalist>
+            <small style="color: #6b7280;">Type a name to move to existing or create new customer</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="saveActionItem()">Save Changes</button>
+        </div>
+      </div>
+    </div>
+
     ${sessionNotes && sessionNotes.length > 0 ? `
     <div class="session-notes-section">
       <h2>Meeting Notes</h2>
       ${sessionNotes.map(note => `
         <div class="session-note-card">
           <div class="note-header">
-            <span class="badge ${note.call_type === 'technical' ? 'badge-success' : 'badge-info'}">
-              ${note.call_type === 'technical' ? 'Technical' : 'Non-Technical'}
+            <span class="badge ${note.call_type === 'technical' ? 'badge-success' : note.call_type === 'partner' ? 'badge-partner' : 'badge-info'}">
+              ${note.call_type === 'technical' ? 'Technical' : note.call_type === 'partner' ? 'Partner' : 'Non-Technical'}
             </span>
             <span class="note-title">${note.title || 'Session'}</span>
-            <span class="note-date">${new Date(note.processed_at).toLocaleDateString()}</span>
+            <span class="note-date">${note.session_date || new Date(note.processed_at).toLocaleDateString()}</span>
           </div>
 
           ${note.summary ? `
@@ -156,6 +212,57 @@
   `,
   extraScripts: `
     <style>
+      /* Diagram zoom controls */
+      .diagram-controls {
+        display: flex;
+        justify-content: flex-end;
+        padding: 0.5rem 0;
+        margin-bottom: 0.5rem;
+      }
+
+      .zoom-controls {
+        display: flex;
+        gap: 0.25rem;
+        background: #f3f4f6;
+        border-radius: 6px;
+        padding: 0.25rem;
+      }
+
+      .zoom-controls button {
+        padding: 0.35rem 0.75rem;
+        border: none;
+        background: transparent;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        cursor: pointer;
+        color: #6b7280;
+        transition: all 0.15s;
+      }
+
+      .zoom-controls button:hover {
+        background: #e5e7eb;
+        color: #374151;
+      }
+
+      .zoom-controls button.active {
+        background: #3b82f6;
+        color: white;
+      }
+
+      /* Allow diagram container to scroll for zoomed images */
+      .diagram-display {
+        overflow: auto !important;
+        align-items: flex-start !important;
+        justify-content: flex-start !important;
+      }
+
+      .diagram-display img {
+        max-width: none !important;
+        width: 1200px;
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: crisp-edges;
+      }
+
       .action-items-section {
         margin-top: 2rem;
         background: #fff;
@@ -206,6 +313,7 @@
       .owner-group.owner-stephen { background: #eff6ff; }
       .owner-group.owner-customer { background: #fefce8; }
       .owner-group.owner-vendor { background: #f0f5ff; }
+      .owner-group.owner-partner { background: #fdf2f8; }
       .owner-group.owner-unknown { background: #f3f4f6; }
 
       .owner-title {
@@ -278,6 +386,111 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .btn-edit-item {
+        background: none;
+        border: none;
+        color: #9ca3af;
+        cursor: pointer;
+        padding: 0.25rem;
+        font-size: 0.9rem;
+        border-radius: 4px;
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+
+      .action-item:hover .btn-edit-item {
+        opacity: 1;
+      }
+
+      .btn-edit-item:hover {
+        background: #e5e7eb;
+        color: #374151;
+      }
+
+      /* Modal styles */
+      .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
+
+      .modal-content {
+        background: white;
+        border-radius: 12px;
+        width: 100%;
+        max-width: 500px;
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+
+      .modal-small {
+        max-width: 450px;
+      }
+
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid #e5e7eb;
+      }
+
+      .modal-header h2 {
+        margin: 0;
+        font-size: 1.25rem;
+      }
+
+      .modal-close {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        cursor: pointer;
+        color: #6b7280;
+      }
+
+      .modal-body {
+        padding: 1.5rem;
+      }
+
+      .modal-body .form-group {
+        margin-bottom: 1rem;
+      }
+
+      .modal-body .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+      }
+
+      .modal-body .form-group input,
+      .modal-body .form-group select,
+      .modal-body .form-group textarea {
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        font-size: 0.95rem;
+      }
+
+      .modal-body .form-group textarea {
+        resize: vertical;
+      }
+
+      .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e5e7eb;
       }
     </style>
     <script>
@@ -360,6 +573,120 @@
           alert('Failed to delete: ' + error.message);
         }
       }
+
+      // Discard diagram but keep action items and notes
+      async function discardDiagram() {
+        if (!confirm('Discard the diagram for "${customer.name}"?\\n\\nAction items and meeting notes will be preserved.')) {
+          return;
+        }
+
+        try {
+          const response = await fetch('/api/diagrams/${diagram ? diagram.id : 0}/keep-notes', { method: 'DELETE' });
+          const data = await response.json();
+          if (data.success) {
+            alert('Diagram discarded. Action items preserved.');
+            window.location.reload();
+          } else {
+            alert('Failed to discard: ' + data.error);
+          }
+        } catch (error) {
+          alert('Failed to discard: ' + error.message);
+        }
+      }
+
+      // Edit action item modal
+      function editActionItem(id, owner, text, date) {
+        document.getElementById('edit-item-id').value = id;
+        document.getElementById('edit-item-owner').value = owner;
+        document.getElementById('edit-item-text').value = text;
+        document.getElementById('edit-item-date').value = date || '';
+        document.getElementById('edit-item-customer').value = '';
+        document.getElementById('edit-item-modal').style.display = 'flex';
+      }
+
+      function closeEditModal() {
+        document.getElementById('edit-item-modal').style.display = 'none';
+      }
+
+      async function saveActionItem() {
+        const id = document.getElementById('edit-item-id').value;
+        const owner = document.getElementById('edit-item-owner').value;
+        const item = document.getElementById('edit-item-text').value.trim();
+        const sessionDate = document.getElementById('edit-item-date').value;
+        const customerName = document.getElementById('edit-item-customer').value.trim();
+
+        if (!item) {
+          alert('Action item text is required');
+          return;
+        }
+
+        try {
+          // First update the item details
+          const updateRes = await fetch('/api/action-items/' + id, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ owner, item, session_date: sessionDate || null })
+          });
+
+          if (!updateRes.ok) {
+            const data = await updateRes.json();
+            alert('Failed to update: ' + data.error);
+            return;
+          }
+
+          // If moving to different customer
+          if (customerName) {
+            const moveRes = await fetch('/api/action-items/' + id + '/move', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ customer_name: customerName })
+            });
+
+            if (!moveRes.ok) {
+              const data = await moveRes.json();
+              alert('Updated item but failed to move: ' + data.error);
+              closeEditModal();
+              window.location.reload();
+              return;
+            }
+
+            const moveData = await moveRes.json();
+            alert('Action item moved to ' + moveData.newCustomerName);
+          }
+
+          closeEditModal();
+          window.location.reload();
+        } catch (error) {
+          alert('Error: ' + error.message);
+        }
+      }
+
+      // Close modal on backdrop click
+      document.getElementById('edit-item-modal')?.addEventListener('click', function(e) {
+        if (e.target === this) closeEditModal();
+      });
+
+      // Diagram zoom controls
+      (function() {
+        const img = document.getElementById('diagram-image');
+        if (!img) return;
+
+        const zoomWidths = { 25: '400px', 50: '800px', 75: '1200px', 100: '1600px', 150: '2400px' };
+        let currentZoom = 75;
+
+        // Apply initial zoom
+        img.style.width = zoomWidths[currentZoom];
+
+        // Set up zoom buttons
+        document.querySelectorAll('.zoom-controls button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            currentZoom = parseInt(btn.dataset.zoom);
+            document.querySelectorAll('.zoom-controls button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            img.style.width = zoomWidths[currentZoom];
+          });
+        });
+      })();
     </script>
   `
 }) %>

@@ -5,6 +5,7 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs');
 const path = require('path');
+const { MAX_SCROLL_ATTEMPTS } = require('../config/constants');
 
 puppeteer.use(StealthPlugin());
 
@@ -14,7 +15,20 @@ const SESSIONS_CACHE_PATH = path.join(__dirname, '../../data/wave-sessions.json'
 class WaveService {
   constructor() {
     this.authToken = null;
+    this.refreshing = false;
+    this.refreshStartedAt = null;
     this.loadAuth();
+  }
+
+  isRefreshing() {
+    return this.refreshing;
+  }
+
+  getRefreshStatus() {
+    return {
+      refreshing: this.refreshing,
+      startedAt: this.refreshStartedAt
+    };
   }
 
   loadAuth() {
@@ -60,6 +74,13 @@ class WaveService {
       throw new Error('Wave not authenticated');
     }
 
+    if (this.refreshing) {
+      throw new Error('Refresh already in progress');
+    }
+
+    this.refreshing = true;
+    this.refreshStartedAt = new Date().toISOString();
+
     const browser = await this.getBrowser();
 
     try {
@@ -81,9 +102,8 @@ class WaveService {
       console.log('Scrolling to load all sessions...');
       let previousHeight = 0;
       let scrollAttempts = 0;
-      const maxScrollAttempts = 50; // Safety limit
 
-      while (scrollAttempts < maxScrollAttempts) {
+      while (scrollAttempts < MAX_SCROLL_ATTEMPTS) {
         const currentHeight = await page.evaluate(() => document.body.scrollHeight);
 
         if (currentHeight === previousHeight) {
@@ -123,43 +143,50 @@ class WaveService {
           if (!match) return;
 
           const sessionId = match[1];
-          const title = link.innerText?.trim() || 'Untitled';
+          const rawTitle = link.innerText?.trim() || 'Untitled';
 
           // Skip navigation/header links (usually short or generic text)
-          if (title.length < 5 || title === 'Sessions' || title === 'View') return;
+          if (rawTitle.length < 5 || rawTitle === 'Sessions' || rawTitle === 'View') return;
 
-          // Look for date/duration in sibling or nearby elements only
-          // Walk up to find the session card/row container
-          let container = link.parentElement;
           let date = null;
           let duration = null;
+          let title = rawTitle;
 
-          // Look at siblings and nearby elements for metadata
-          for (let i = 0; i < 3 && container; i++) {
-            // Look for sibling elements that might contain date/time
-            const siblings = container.querySelectorAll('span, div, p, time');
-            siblings.forEach(el => {
-              const text = el.innerText?.trim() || '';
-              // Skip if it's the same as the title
-              if (text === title || text.length > 50) return;
+          // PRIORITY: Extract date from title (format: "Title12/19/2025, 7:07:43 PM·46:10")
+          // Wave embeds date/time/duration directly in the title text
+          const titleDateMatch = rawTitle.match(/(\d{1,2}\/\d{1,2}\/\d{4}),?\s*(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)/i);
+          if (titleDateMatch) {
+            date = titleDateMatch[1]; // e.g., "12/19/2025"
+            // Clean up title by removing the date/time portion
+            title = rawTitle.replace(/\d{1,2}\/\d{1,2}\/\d{4},?\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?/i, '').trim();
+          }
 
-              // Look for date patterns
-              if (!date) {
-                const dateMatch = text.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})/);
-                if (dateMatch) date = dateMatch[1];
-                // Also try "Jan 5, 2026" format
-                const dateMatch2 = text.match(/((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4})/i);
-                if (dateMatch2) date = dateMatch2[1];
-              }
+          // Extract duration from title (format: "·46:10" or similar)
+          const durationMatch = rawTitle.match(/[·•]\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*$/);
+          if (durationMatch) {
+            duration = durationMatch[1];
+            // Remove duration from title
+            title = title.replace(/[·•]\s*\d{1,2}:\d{2}(?::\d{2})?\s*$/, '').trim();
+          }
 
-              // Look for duration patterns (but not dates)
-              if (!duration && !text.includes('/')) {
-                const durMatch = text.match(/^(\d{1,2}:\d{2}(?::\d{2})?)$/);
-                if (durMatch) duration = durMatch[1];
-              }
-            });
+          // Fallback: look for date in nearby elements if not found in title
+          if (!date) {
+            let container = link.parentElement;
+            for (let i = 0; i < 3 && container && !date; i++) {
+              const siblings = container.querySelectorAll('span, div, p, time');
+              siblings.forEach(el => {
+                const text = el.innerText?.trim() || '';
+                if (text === rawTitle || text.length > 50) return;
 
-            container = container.parentElement;
+                if (!date) {
+                  const dateMatch = text.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})/);
+                  if (dateMatch) date = dateMatch[1];
+                  const dateMatch2 = text.match(/((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4})/i);
+                  if (dateMatch2) date = dateMatch2[1];
+                }
+              });
+              container = container.parentElement;
+            }
           }
 
           results.push({
@@ -187,8 +214,10 @@ class WaveService {
       // Cache the sessions
       fs.writeFileSync(SESSIONS_CACHE_PATH, JSON.stringify(unique, null, 2));
 
+      this.refreshing = false;
       return unique;
     } finally {
+      this.refreshing = false;
       await browser.close();
     }
   }

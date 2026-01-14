@@ -703,6 +703,11 @@ body {
   color: #065f46;
 }
 
+.badge-partner {
+  background: #fce7f3;
+  color: #9d174d;
+}
+
 .note-title {
   font-weight: 500;
   flex: 1;
@@ -775,6 +780,11 @@ body {
   color: #4338ca;
 }
 
+.owner-partner .owner-badge {
+  background: #fce7f3;
+  color: #9d174d;
+}
+
 .note-gaps {
   margin-top: 1rem;
   padding: 0.75rem;
@@ -821,4 +831,106 @@ body {
 .type-actions {
   background: #fef3c7;
   color: #92400e;
+}
+
+/* Nav Badge for Queue Count */
+.nav-badge {
+  display: inline-block;
+  background: #ef4444;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  margin-left: 0.4rem;
+  min-width: 1.1rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* Toast Notifications */
+#toast-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.toast {
+  background: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 0.875rem 2.5rem 0.875rem 1rem;
+  max-width: 350px;
+  position: relative;
+  pointer-events: auto;
+  animation: slideIn 0.3s ease-out;
+  border-left: 4px solid #6b7280;
+}
+
+.toast a {
+  color: inherit;
+  text-decoration: none;
+  display: block;
+}
+
+.toast a:hover {
+  text-decoration: underline;
+}
+
+.toast-completed {
+  border-left-color: var(--success-color);
+  background: #f0fdf4;
+}
+
+.toast-failed {
+  border-left-color: var(--danger-color);
+  background: #fef2f2;
+}
+
+.toast-close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  color: #9ca3af;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0.25rem;
+}
+
+.toast-close:hover {
+  color: #374151;
+}
+
+.toast-fade {
+  animation: fadeOut 0.3s ease-out forwards;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
 }

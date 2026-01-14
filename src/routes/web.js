@@ -104,19 +104,22 @@ router.get('/', (req, res) => {
 // Wave Sessions
 router.get('/wave', (req, res) => {
   const isAuthenticated = wave.isAuthenticated();
+  const isRefreshing = wave.isRefreshing();
   const sessions = wave.getCachedSessions();
 
-  // Mark which sessions are already processed or skipped
+  // Mark which sessions are already processed, skipped, or queued
   const sessionsWithStatus = sessions.map(s => ({
     ...s,
     processed: db.isSessionProcessed(s.url),
-    skipped: db.isSessionSkipped(s.url)
+    skipped: db.isSessionSkipped(s.url),
+    queued: db.isSessionQueued(s.url)
   }));
 
   res.render('wave', {
     page: 'wave',
     sessions: sessionsWithStatus,
-    authenticated: isAuthenticated
+    authenticated: isAuthenticated,
+    refreshing: isRefreshing
   });
 });
 
@@ -183,6 +186,9 @@ router.get('/customer/:id', async (req, res) => {
   const actionItems = db.getActionItemsByCustomer(customer.id, true); // Include completed
   const openActionItemCount = db.getOpenActionItemCount(customer.id);
 
+  // Get all customers for the move dropdown
+  const allCustomers = db.getAllCustomers();
+
   res.render('customer', {
     customer,
     diagram,
@@ -191,7 +197,8 @@ router.get('/customer/:id', async (req, res) => {
     sessions,
     sessionNotes,
     actionItems,
-    openActionItemCount
+    openActionItemCount,
+    allCustomers
   });
 });
 
@@ -283,13 +290,11 @@ router.post('/customer/:id/assign', (req, res) => {
     // Move diagram to existing customer
     const diagram = db.getDiagramByCustomer(customer.id);
     if (diagram) {
-      // Update diagram's customer_id
-      db.db.prepare('UPDATE diagrams SET customer_id = ? WHERE id = ?')
-        .run(existingCustomer.id, diagram.id);
+      db.updateDiagramCustomer(diagram.id, existingCustomer.id);
     }
 
     // Delete the unknown customer
-    db.db.prepare('DELETE FROM customers WHERE id = ?').run(customer.id);
+    db.deleteCustomer(customer.id);
 
     res.json({ success: true, redirect: `/customer/${existingCustomer.id}` });
   } else if (name) {
@@ -355,11 +360,11 @@ router.post('/customer/:id/delete', (req, res) => {
       }
     });
     // Delete diagram (cascades to versions and sessions)
-    db.db.prepare('DELETE FROM diagrams WHERE id = ?').run(diagram.id);
+    db.deleteDiagram(diagram.id);
   }
 
   // Delete customer
-  db.db.prepare('DELETE FROM customers WHERE id = ?').run(customer.id);
+  db.deleteCustomer(customer.id);
 
   res.json({ success: true, redirect: '/' });
 });
@@ -387,7 +392,7 @@ router.post('/customer/:id/version/:version/delete', (req, res) => {
   }
 
   // Delete version
-  db.db.prepare('DELETE FROM diagram_versions WHERE id = ?').run(version.id);
+  db.deleteVersion(version.id);
 
   res.json({ success: true });
 });

@@ -61,6 +61,7 @@ db.exec(`
     components TEXT,
     gaps TEXT,
     skipped BOOLEAN DEFAULT FALSE,
+    session_date TEXT,
     processed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
   );
@@ -81,7 +82,23 @@ db.exec(`
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
   );
 
+  -- Processing queue for background job processing
+  CREATE TABLE IF NOT EXISTS processing_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_url TEXT NOT NULL UNIQUE,
+    title TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    error TEXT,
+    result_summary TEXT,
+    customer_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME,
+    completed_at DATETIME,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_diagrams_customer ON diagrams(customer_id);
+  CREATE INDEX IF NOT EXISTS idx_queue_status ON processing_queue(status);
   CREATE INDEX IF NOT EXISTS idx_versions_diagram ON diagram_versions(diagram_id);
   CREATE INDEX IF NOT EXISTS idx_sessions_diagram ON diagram_sessions(diagram_id);
   CREATE INDEX IF NOT EXISTS idx_session_notes_url ON session_notes(session_url);
@@ -89,6 +106,17 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_action_items_customer ON action_items(customer_id);
   CREATE INDEX IF NOT EXISTS idx_action_items_completed ON action_items(completed);
 `);
+
+// Migration: Add session_date column to session_notes if it doesn't exist
+try {
+  db.prepare('SELECT session_date FROM session_notes LIMIT 1').get();
+} catch (e) {
+  if (e.code === 'SQLITE_ERROR' && e.message.includes('no such column')) {
+    console.log('Adding session_date column to session_notes...');
+    db.exec('ALTER TABLE session_notes ADD COLUMN session_date TEXT');
+    console.log('session_date column added successfully');
+  }
+}
 
 // Customer operations
 const customerOps = {
@@ -125,6 +153,10 @@ const customerOps = {
 
   search: db.prepare(`
     SELECT * FROM customers WHERE name LIKE ? ORDER BY name
+  `),
+
+  mergeIntoDiagram: db.prepare(`
+    UPDATE diagrams SET customer_id = ? WHERE id = ?
   `)
 };
 
@@ -193,6 +225,10 @@ const versionOps = {
 
   updatePngPath: db.prepare(`
     UPDATE diagram_versions SET png_path = ? WHERE id = ?
+  `),
+
+  delete: db.prepare(`
+    DELETE FROM diagram_versions WHERE id = ?
   `)
 };
 
@@ -208,19 +244,23 @@ const sessionOps = {
 
   exists: db.prepare(`
     SELECT 1 FROM diagram_sessions WHERE session_url = ?
+  `),
+
+  getByUrl: db.prepare(`
+    SELECT * FROM diagram_sessions WHERE session_url = ?
   `)
 };
 
 // Session notes operations
 const notesOps = {
   create: db.prepare(`
-    INSERT INTO session_notes (session_url, customer_id, call_type, title, summary, action_items, components, gaps)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO session_notes (session_url, customer_id, call_type, title, summary, action_items, components, gaps, session_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
 
   update: db.prepare(`
     UPDATE session_notes
-    SET customer_id = ?, call_type = ?, title = ?, summary = ?, action_items = ?, components = ?, gaps = ?
+    SET customer_id = ?, call_type = ?, title = ?, summary = ?, action_items = ?, components = ?, gaps = ?, session_date = ?
     WHERE session_url = ?
   `),
 
@@ -310,6 +350,103 @@ const actionItemOps = {
   countOpenByCustomerId: db.prepare(`
     SELECT COUNT(*) as count FROM action_items
     WHERE customer_id = ? AND completed = FALSE
+  `),
+
+  updateCustomerId: db.prepare(`
+    UPDATE action_items SET customer_id = ? WHERE id = ?
+  `),
+
+  updateItem: db.prepare(`
+    UPDATE action_items SET owner = ?, item = ?, session_date = ? WHERE id = ?
+  `)
+};
+
+// Queue operations
+const queueOps = {
+  add: db.prepare(`
+    INSERT INTO processing_queue (session_url, title, status)
+    VALUES (?, ?, 'pending')
+    ON CONFLICT(session_url) DO UPDATE SET
+      status = 'pending',
+      title = excluded.title,
+      error = NULL,
+      started_at = NULL,
+      completed_at = NULL
+    WHERE status = 'failed'
+  `),
+
+  getNextPending: db.prepare(`
+    SELECT * FROM processing_queue
+    WHERE status = 'pending'
+    ORDER BY created_at ASC
+    LIMIT 1
+  `),
+
+  markProcessing: db.prepare(`
+    UPDATE processing_queue
+    SET status = 'processing', started_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `),
+
+  markCompleted: db.prepare(`
+    UPDATE processing_queue
+    SET status = 'completed', completed_at = CURRENT_TIMESTAMP,
+        result_summary = ?, customer_id = ?
+    WHERE id = ?
+  `),
+
+  markFailed: db.prepare(`
+    UPDATE processing_queue
+    SET status = 'failed', completed_at = CURRENT_TIMESTAMP, error = ?
+    WHERE id = ?
+  `),
+
+  getById: db.prepare(`
+    SELECT * FROM processing_queue WHERE id = ?
+  `),
+
+  getBySessionUrl: db.prepare(`
+    SELECT * FROM processing_queue WHERE session_url = ?
+  `),
+
+  isQueued: db.prepare(`
+    SELECT 1 FROM processing_queue WHERE session_url = ? AND status IN ('pending', 'processing')
+  `),
+
+  getPendingCount: db.prepare(`
+    SELECT COUNT(*) as count FROM processing_queue WHERE status = 'pending'
+  `),
+
+  getProcessingJob: db.prepare(`
+    SELECT * FROM processing_queue WHERE status = 'processing' LIMIT 1
+  `),
+
+  getRecentCompleted: db.prepare(`
+    SELECT * FROM processing_queue
+    WHERE status IN ('completed', 'failed')
+    ORDER BY completed_at DESC
+    LIMIT 20
+  `),
+
+  deletePending: db.prepare(`
+    DELETE FROM processing_queue WHERE id = ? AND status = 'pending'
+  `),
+
+  resetStale: db.prepare(`
+    UPDATE processing_queue
+    SET status = 'failed', error = 'Processing interrupted - app restarted', completed_at = CURRENT_TIMESTAMP
+    WHERE status = 'processing'
+  `),
+
+  retryFailed: db.prepare(`
+    UPDATE processing_queue
+    SET status = 'pending', error = NULL, started_at = NULL, completed_at = NULL
+    WHERE id = ? AND status = 'failed'
+  `),
+
+  clearOldCompleted: db.prepare(`
+    DELETE FROM processing_queue
+    WHERE status IN ('completed', 'failed') AND completed_at < datetime('now', '-7 days')
   `)
 };
 
@@ -378,8 +515,34 @@ function updateVersionPngPath(versionId, pngPath) {
   versionOps.updatePngPath.run(pngPath, versionId);
 }
 
+function deleteVersion(versionId) {
+  const result = versionOps.delete.run(versionId);
+  return result.changes > 0;
+}
+
 function addSession(diagramId, sessionUrl) {
   sessionOps.create.run(diagramId, sessionUrl);
+}
+
+function getDiagramSessionByUrl(sessionUrl) {
+  return sessionOps.getByUrl.get(sessionUrl);
+}
+
+// Customer deletion - deletes customer record
+function deleteCustomer(customerId) {
+  const result = customerOps.delete.run(customerId);
+  return result.changes > 0;
+}
+
+// Update diagram's customer (for merging customers)
+function updateDiagramCustomer(diagramId, customerId) {
+  customerOps.mergeIntoDiagram.run(customerId, diagramId);
+}
+
+// Delete diagram (cascades to versions and sessions)
+function deleteDiagram(diagramId) {
+  const result = diagramOps.delete.run(diagramId);
+  return result.changes > 0;
 }
 
 function getSessions(diagramId) {
@@ -391,17 +554,17 @@ function sessionExists(sessionUrl) {
 }
 
 // Session notes functions
-function saveSessionNotes(sessionUrl, customerId, callType, title, summary, actionItems, components, gaps) {
+function saveSessionNotes(sessionUrl, customerId, callType, title, summary, actionItems, components, gaps, sessionDate = null) {
   const existing = notesOps.getByUrl.get(sessionUrl);
   const actionItemsJson = JSON.stringify(actionItems || []);
   const componentsJson = JSON.stringify(components || []);
   const gapsJson = JSON.stringify(gaps || []);
 
   if (existing && !existing.skipped) {
-    notesOps.update.run(customerId, callType, title, summary, actionItemsJson, componentsJson, gapsJson, sessionUrl);
+    notesOps.update.run(customerId, callType, title, summary, actionItemsJson, componentsJson, gapsJson, sessionDate, sessionUrl);
     return existing.id;
   } else {
-    const result = notesOps.create.run(sessionUrl, customerId, callType, title, summary, actionItemsJson, componentsJson, gapsJson);
+    const result = notesOps.create.run(sessionUrl, customerId, callType, title, summary, actionItemsJson, componentsJson, gapsJson, sessionDate);
     return result.lastInsertRowid;
   }
 }
@@ -508,14 +671,132 @@ function saveActionItemsFromSession(sessionNoteId, customerId, actionItems, sess
   return ids;
 }
 
+// Move an action item to a different customer
+function moveActionItemToCustomer(actionItemId, newCustomerId) {
+  actionItemOps.updateCustomerId.run(newCustomerId, actionItemId);
+  return actionItemOps.getById.get(actionItemId);
+}
+
+// Update action item details (owner, text, date)
+function updateActionItem(id, owner, item, sessionDate) {
+  actionItemOps.updateItem.run(owner, item, sessionDate, id);
+  return actionItemOps.getById.get(id);
+}
+
+// Delete a diagram but keep associated action items
+// Action items have their own customer_id so they survive
+function deleteDiagramKeepActionItems(diagramId) {
+  const diagram = diagramOps.getById.get(diagramId);
+  if (!diagram) return false;
+
+  // Get the session URLs associated with this diagram
+  const sessions = db.prepare('SELECT session_url FROM diagram_sessions WHERE diagram_id = ?').all(diagramId);
+
+  // For each session, disconnect session_notes from the diagram by setting call_type to non-technical
+  // This preserves the notes and action items but removes the diagram association
+  for (const session of sessions) {
+    db.prepare(`
+      UPDATE session_notes
+      SET call_type = 'non-technical'
+      WHERE session_url = ?
+    `).run(session.session_url);
+  }
+
+  // Delete the diagram versions (PNGs will be orphaned but that's ok)
+  db.prepare('DELETE FROM diagram_versions WHERE diagram_id = ?').run(diagramId);
+
+  // Delete the diagram sessions
+  db.prepare('DELETE FROM diagram_sessions WHERE diagram_id = ?').run(diagramId);
+
+  // Delete the diagram itself
+  db.prepare('DELETE FROM diagrams WHERE id = ?').run(diagramId);
+
+  return true;
+}
+
+// Queue functions
+function addToQueue(sessionUrl, title = null) {
+  const result = queueOps.add.run(sessionUrl, title);
+  return result.lastInsertRowid;
+}
+
+function getNextPendingJob() {
+  return queueOps.getNextPending.get();
+}
+
+function markJobProcessing(id) {
+  queueOps.markProcessing.run(id);
+}
+
+function markJobCompleted(id, resultSummary, customerId) {
+  queueOps.markCompleted.run(resultSummary, customerId, id);
+}
+
+function markJobFailed(id, error) {
+  queueOps.markFailed.run(error, id);
+}
+
+function getQueueJob(id) {
+  return queueOps.getById.get(id);
+}
+
+function getQueueJobByUrl(sessionUrl) {
+  return queueOps.getBySessionUrl.get(sessionUrl);
+}
+
+function isSessionQueued(sessionUrl) {
+  return !!queueOps.isQueued.get(sessionUrl);
+}
+
+function getQueueStatus() {
+  const pendingCount = queueOps.getPendingCount.get().count;
+  const processingJob = queueOps.getProcessingJob.get();
+  const recentCompleted = queueOps.getRecentCompleted.all();
+
+  return {
+    pending_count: pendingCount,
+    processing_count: processingJob ? 1 : 0,
+    current_job: processingJob,
+    recent_completed: recentCompleted
+  };
+}
+
+function deleteFromQueue(id) {
+  const result = queueOps.deletePending.run(id);
+  return result.changes > 0;
+}
+
+function resetStaleQueueJobs() {
+  const result = queueOps.resetStale.run();
+  if (result.changes > 0) {
+    console.log(`Reset ${result.changes} stale processing jobs`);
+  }
+}
+
+function retryQueueJob(id) {
+  const result = queueOps.retryFailed.run(id);
+  return result.changes > 0;
+}
+
+function clearOldQueueJobs() {
+  queueOps.clearOldCompleted.run();
+}
+
 // Create or get customer's diagram, add a new version
 function addDiagramVersion(customerName, mermaidCode, sessionUrl = null, notes = null, isUnknown = false) {
-  // Check if customer exists
-  let customer = customerOps.search.get(customerName);
+  let customer;
 
-  if (!customer) {
-    const customerId = createCustomer(customerName, isUnknown);
+  if (isUnknown) {
+    // For unknown customers, ALWAYS create a new customer entry - no versioning/iteration
+    const customerId = createCustomer(customerName, true);
     customer = { id: customerId };
+  } else {
+    // For known customers, find existing or create new
+    customer = customerOps.search.get(customerName);
+    if (!customer) {
+      const customerId = createCustomer(customerName, false);
+      customer = { id: customerId };
+    }
   }
 
   // Get or create diagram for customer
@@ -526,7 +807,7 @@ function addDiagramVersion(customerName, mermaidCode, sessionUrl = null, notes =
     diagram = { id: diagramId };
   }
 
-  // Create new version
+  // Create new version (for unknown customers this will always be version 1)
   const version = createVersion(diagram.id, mermaidCode, notes);
 
   // Add session if provided
@@ -607,9 +888,14 @@ module.exports = {
   getVersion,
   getAllVersions,
   updateVersionPngPath,
+  deleteVersion,
   addSession,
   getSessions,
   sessionExists,
+  getDiagramSessionByUrl,
+  deleteCustomer,
+  updateDiagramCustomer,
+  deleteDiagram,
   addDiagramVersion,
   // Session notes
   saveSessionNotes,
@@ -628,5 +914,23 @@ module.exports = {
   toggleActionItemComplete,
   deleteActionItemsBySessionNote,
   getOpenActionItemCount,
-  saveActionItemsFromSession
+  saveActionItemsFromSession,
+  moveActionItemToCustomer,
+  updateActionItem,
+  // Diagram management
+  deleteDiagramKeepActionItems,
+  // Queue
+  addToQueue,
+  getNextPendingJob,
+  markJobProcessing,
+  markJobCompleted,
+  markJobFailed,
+  getQueueJob,
+  getQueueJobByUrl,
+  isSessionQueued,
+  getQueueStatus,
+  deleteFromQueue,
+  resetStaleQueueJobs,
+  retryQueueJob,
+  clearOldQueueJobs
 };

@@ -6,6 +6,7 @@ const path = require('path');
 
 const webRoutes = require('./routes/web');
 const apiRoutes = require('./routes/api');
+const queueWorker = require('./services/queue-worker');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,6 +21,16 @@ app.set('views', path.join(__dirname, '../views'));
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Prevent browser caching of HTML pages
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.match(/\.(js|css|png|jpg|ico)$/)) {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+  }
+  next();
+});
 
 // Static files
 app.use(express.static(path.join(__dirname, '../public')));
@@ -55,4 +66,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`Infrastructure Diagram App running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+
+  // Start background queue worker
+  queueWorker.start();
 });

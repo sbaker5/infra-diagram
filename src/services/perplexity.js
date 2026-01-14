@@ -2,12 +2,38 @@
  * Perplexity API service for extracting infrastructure from transcripts
  */
 const infraTemplate = require('../config/infra-template');
+const { TRANSCRIPT_MAX_LENGTH, LLM_MAX_TOKENS } = require('../config/constants');
+const { ANALYSIS_SYSTEM_MESSAGE, buildAnalysisPrompt } = require('../config/llm-prompts');
 
 const PERPLEXITY_API_URL = 'https://api.perplexity.ai/chat/completions';
 
 class PerplexityService {
   constructor() {
     this.apiKey = process.env.PERPLEXITY_API_KEY;
+  }
+
+  /**
+   * Normalize owner names - handles common transcription variations
+   */
+  normalizeOwner(owner) {
+    if (!owner) return 'Unknown';
+    const normalized = owner.trim();
+    // Steven/Steve → Stephen (user's actual name)
+    if (/^steven$/i.test(normalized)) return 'Stephen';
+    if (/^steve$/i.test(normalized)) return 'Stephen';
+    return normalized;
+  }
+
+  /**
+   * Clean up Mermaid code - fix common LLM generation issues
+   */
+  cleanMermaidCode(code) {
+    if (!code) return code;
+    // Remove invalid ::: class syntax (e.g., servers:::onprem → servers)
+    let cleaned = code.replace(/(\w+):::\w+/g, '$1');
+    // Also clean up any leftover double colons that shouldn't be there
+    cleaned = cleaned.replace(/(\w+)::([\w]+)(?!\[)/g, '$1_$2');
+    return cleaned;
   }
 
   isConfigured() {
@@ -26,48 +52,8 @@ class PerplexityService {
       `- ${c.name}: ${c.components.join(', ')}`
     ).join('\n');
 
-    const prompt = `You are an IT consultant assistant. Analyze this meeting transcript and provide a structured analysis.
-
-INFRASTRUCTURE CATEGORIES (for technical calls):
-${categories}
-
-TRANSCRIPT:
-${transcript.substring(0, 15000)}
-
-TASK:
-1. Determine if this is a TECHNICAL call (discusses IT infrastructure, systems, security) or NON-TECHNICAL (sales, general business, administrative)
-2. Extract the customer/company name if mentioned
-3. Write a 2-3 sentence summary of the call
-4. List action items with who is responsible (Stephen, Customer, or Vendor)
-5. For TECHNICAL calls only: identify infrastructure components and gaps, generate a Mermaid diagram
-
-OUTPUT FORMAT (respond with valid JSON only):
-{
-  "callType": "technical" or "non-technical",
-  "customerName": "company name if mentioned, otherwise null",
-  "summary": "2-3 sentence summary of the call covering key discussion points",
-  "actionItems": [
-    {"owner": "Stephen", "item": "Send quote for firewall upgrade"},
-    {"owner": "Customer", "item": "Provide network diagram"},
-    {"owner": "Vendor", "item": "Schedule demo for next week"}
-  ],
-  "components": [
-    {"category": "Network", "name": "Firewall", "vendor": "Palo Alto", "notes": "needs upgrade"}
-  ],
-  "gaps": [
-    {"category": "Security", "component": "MFA", "reason": "not implemented for remote access"}
-  ],
-  "mermaidCode": "flowchart TB\\n    subgraph Network\\n        FW[Firewall - Palo Alto]\\n    end"
-}
-
-RULES:
-- For NON-TECHNICAL calls: set components, gaps, and mermaidCode to null
-- For TECHNICAL calls: generate the Mermaid diagram with max 20-25 nodes
-- Action items should be specific and actionable
-- Summary should capture the key points without jargon
-- If no clear customer name, set customerName to null
-
-Respond ONLY with the JSON object, no markdown code blocks.`;
+    const truncatedTranscript = transcript.substring(0, TRANSCRIPT_MAX_LENGTH);
+    const prompt = buildAnalysisPrompt(categories, truncatedTranscript);
 
     const response = await fetch(PERPLEXITY_API_URL, {
       method: 'POST',
@@ -80,7 +66,7 @@ Respond ONLY with the JSON object, no markdown code blocks.`;
         messages: [
           {
             role: 'system',
-            content: 'You are an IT consultant assistant. Analyze meeting transcripts and provide structured summaries, action items, and infrastructure analysis. Always respond with valid JSON only.'
+            content: ANALYSIS_SYSTEM_MESSAGE
           },
           {
             role: 'user',
@@ -88,7 +74,7 @@ Respond ONLY with the JSON object, no markdown code blocks.`;
           }
         ],
         temperature: 0.1,
-        max_tokens: 4000
+        max_tokens: LLM_MAX_TOKENS
       })
     });
 
@@ -118,12 +104,22 @@ Respond ONLY with the JSON object, no markdown code blocks.`;
         result.mermaidCode = result.mermaidCode
           .replace(/\\n/g, '\n')
           .replace(/\\"/g, '"');
+        // Clean up invalid Mermaid syntax
+        result.mermaidCode = this.cleanMermaidCode(result.mermaidCode);
       }
 
       // Ensure required fields
       result.callType = result.callType || 'non-technical';
       result.summary = result.summary || 'No summary available';
       result.actionItems = result.actionItems || [];
+
+      // Normalize owner names in action items (Steven/Steve → Stephen)
+      if (result.actionItems && result.actionItems.length > 0) {
+        result.actionItems = result.actionItems.map(item => ({
+          ...item,
+          owner: this.normalizeOwner(item.owner)
+        }));
+      }
 
       return result;
     } catch (parseError) {
