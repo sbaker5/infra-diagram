@@ -239,7 +239,11 @@ const sessionOps = {
   `),
 
   getByDiagramId: db.prepare(`
-    SELECT * FROM diagram_sessions WHERE diagram_id = ? ORDER BY processed_at DESC
+    SELECT ds.*, sn.session_date
+    FROM diagram_sessions ds
+    LEFT JOIN session_notes sn ON ds.session_url = sn.session_url
+    WHERE ds.diagram_id = ?
+    ORDER BY sn.session_date DESC, ds.processed_at DESC
   `),
 
   exists: db.prepare(`

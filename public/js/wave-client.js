@@ -15,6 +15,7 @@
   const transcriptText = document.getElementById('transcript-text');
   const copyBtn = document.getElementById('copy-transcript');
   const showSkippedCheckbox = document.getElementById('show-skipped');
+  const hideProcessedCheckbox = document.getElementById('hide-processed');
   const queueStatusPanel = document.getElementById('queue-status-panel');
   const queueStatusText = document.getElementById('queue-status-text');
   const queueProgressText = document.getElementById('queue-progress-text');
@@ -38,6 +39,19 @@
         sessionsList.classList.add('show-skipped');
       } else {
         sessionsList.classList.remove('show-skipped');
+      }
+    });
+  }
+
+  function initHideProcessedFilter() {
+    if (!hideProcessedCheckbox) return;
+
+    // Checkbox checked = hide processed (no class), unchecked = show processed (add class)
+    hideProcessedCheckbox.addEventListener('change', function() {
+      if (this.checked) {
+        sessionsList.classList.remove('show-processed');
+      } else {
+        sessionsList.classList.add('show-processed');
       }
     });
   }
@@ -821,6 +835,7 @@
 
   function init() {
     initSkipFilter();
+    initHideProcessedFilter();
     initRefreshButton();
     initSkipButtons();
     initProcessButtons();

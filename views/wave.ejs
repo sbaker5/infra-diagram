@@ -55,6 +55,10 @@ ${!authenticated ? `
       ${sessions.filter(s => !s.processed && !s.skipped && !s.queued).length} unprocessed
     </span>
     <label class="skip-filter">
+      <input type="checkbox" id="hide-processed" checked />
+      Hide processed (${sessions.filter(s => s.processed).length})
+    </label>
+    <label class="skip-filter">
       <input type="checkbox" id="show-skipped" />
       Show skipped (${sessions.filter(s => s.skipped).length})
     </label>
@@ -269,6 +273,11 @@ ${!authenticated ? `
 .sessions-list.show-skipped .session-card.skipped {
   display: flex;
   opacity: 0.6;
+}
+
+/* Hide processed sessions by default (checkbox checked = hide them) */
+.sessions-list:not(.show-processed) .session-card.processed {
+  display: none;
 }
 
 .sessions-list {

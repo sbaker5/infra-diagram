@@ -87,7 +87,7 @@
                     <a href="${s.session_url}" target="_blank" style="color: var(--primary-color); text-decoration: none;">
                       ${s.session_url.split('/').pop().substring(0, 8)}...
                     </a>
-                    <div style="font-size: 0.8rem; color: #666;">${new Date(s.processed_at).toLocaleDateString()}</div>
+                    <div style="font-size: 0.8rem; color: #666;">${s.session_date || 'Unknown date'}</div>
                   </li>
                 `).join('')}
               </ul>
