@@ -45,11 +45,41 @@
               </div>
               <div class="customer-card-actions">
                 <a href="/customer/${customer.id}" class="btn btn-sm btn-outline">View</a>
-                <a href="/customer/${customer.id}/edit" class="btn btn-sm btn-primary">Edit</a>
+                <button class="btn btn-sm btn-secondary" onclick="openEditModal(${customer.id}, \`${customer.name.replace(/`/g, '\\`')}\`)">Edit</button>
               </div>
             </div>
           </div>
         `).join('')}
+      </div>
+
+      <!-- Edit Customer Modal -->
+      <div id="editModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content" style="max-width: 500px;">
+          <h2 style="margin-bottom: 1.5rem;">Edit Customer</h2>
+          <form id="editForm">
+            <input type="hidden" id="editCustomerId">
+
+            <div class="form-group">
+              <label for="editName">Rename Customer</label>
+              <input type="text" id="editName" class="form-control" placeholder="Enter new name">
+            </div>
+
+            <p style="text-align: center; color: #666; margin: 1rem 0;">- or merge with existing -</p>
+
+            <div class="form-group">
+              <label for="mergeCustomer">Merge Into</label>
+              <select id="mergeCustomer" class="form-control">
+                <option value="">Select customer to merge into...</option>
+              </select>
+              <small style="color: #666;">This will move all diagrams and notes to the selected customer</small>
+            </div>
+
+            <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+              <button type="button" class="btn btn-outline" style="flex: 1;" onclick="closeEditModal()">Cancel</button>
+              <button type="submit" class="btn btn-primary" style="flex: 1;">Save</button>
+            </div>
+          </form>
+        </div>
       </div>
     `}
   `,
@@ -63,6 +93,77 @@
           const query = searchInput.value;
           window.location.href = query ? '/?q=' + encodeURIComponent(query) : '/';
         }, 300);
+      });
+
+      // Edit Modal
+      const editModal = document.getElementById('editModal');
+      const editForm = document.getElementById('editForm');
+      const editCustomerId = document.getElementById('editCustomerId');
+      const editName = document.getElementById('editName');
+      const mergeCustomer = document.getElementById('mergeCustomer');
+
+      async function openEditModal(customerId, currentName) {
+        editCustomerId.value = customerId;
+        editName.value = currentName;
+        mergeCustomer.value = '';
+
+        // Load customers for merge dropdown
+        try {
+          const res = await fetch('/api/customers');
+          const customers = await res.json();
+          mergeCustomer.innerHTML = '<option value="">Select customer to merge into...</option>';
+          customers
+            .filter(c => c.id !== customerId)
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .forEach(c => {
+              mergeCustomer.innerHTML += '<option value="' + c.id + '">' + c.name + '</option>';
+            });
+        } catch (e) {
+          console.error('Failed to load customers:', e);
+        }
+
+        editModal.style.display = 'flex';
+      }
+
+      function closeEditModal() {
+        editModal.style.display = 'none';
+      }
+
+      editForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const customerId = editCustomerId.value;
+        const name = editName.value.trim();
+        const mergeId = mergeCustomer.value;
+
+        if (!name && !mergeId) {
+          alert('Please enter a name or select a customer to merge into');
+          return;
+        }
+
+        try {
+          const res = await fetch('/customer/' + customerId + '/assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: mergeId ? null : name,
+              existing_customer_id: mergeId || null
+            })
+          });
+
+          const data = await res.json();
+          if (data.success) {
+            window.location.reload();
+          } else {
+            alert('Failed: ' + data.error);
+          }
+        } catch (err) {
+          alert('Failed: ' + err.message);
+        }
+      });
+
+      editModal.addEventListener('click', (e) => {
+        if (e.target === editModal) closeEditModal();
       });
     </script>
   `
