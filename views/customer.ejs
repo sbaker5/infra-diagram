@@ -289,28 +289,32 @@
         min-width: 0;
       }
 
-      /* Pan-zoom diagram container */
+      /* Pan-zoom diagram container - override global flex centering */
       .diagram-display {
+        display: block !important;
+        position: relative !important;
         overflow: hidden !important;
-        position: relative;
         cursor: grab;
         min-height: 400px;
         max-height: 70vh;
-        background: #fafafa;
+        background: #f8f9fa;
+        border: 1px solid #e5e7eb;
       }
 
       .diagram-display.dragging {
         cursor: grabbing;
       }
 
+      /* Override global img styles for pan-zoom */
       .diagram-display img {
+        position: absolute !important;
         max-width: none !important;
-        width: auto;
+        width: auto !important;
+        height: auto !important;
         transform-origin: 0 0;
         user-select: none;
         -webkit-user-drag: none;
-        image-rendering: -webkit-optimize-contrast;
-        image-rendering: crisp-edges;
+        pointer-events: none;
       }
 
       .action-items-section {
