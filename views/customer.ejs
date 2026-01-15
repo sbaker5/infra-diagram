@@ -772,87 +772,115 @@
         let isDragging = false;
         let startX, startY;
         let fitScale = 1;
+        let imageReady = false;
+        let naturalW = 0, naturalH = 0;
 
         function updateTransform() {
           img.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + scale + ')';
         }
 
-        function updateZoomButtons() {
-          const pct = Math.round(scale * 100);
-          const fitPct = Math.round(fitScale * 100);
-          const isFit = Math.abs(scale - fitScale) < 0.01;
-
+        function clearActiveButtons() {
           document.querySelectorAll('.zoom-controls button').forEach(btn => {
-            if (btn.id === 'zoom-fit') {
-              btn.classList.toggle('active', isFit);
-            } else if (btn.dataset.zoom) {
-              const btnZoom = parseInt(btn.dataset.zoom);
-              btn.classList.toggle('active', !isFit && btnZoom === pct);
-            }
+            btn.classList.remove('active');
           });
         }
 
-        // Calculate scale to fit image in container with padding
-        function calcFitScale() {
-          const containerRect = container.getBoundingClientRect();
-          const imgWidth = img.naturalWidth || img.width;
-          const imgHeight = img.naturalHeight || img.height;
-          if (!imgWidth || !imgHeight) return 0.5;
-
-          const padding = 20;
-          const availW = containerRect.width - padding * 2;
-          const availH = containerRect.height - padding * 2;
-
-          const scaleW = availW / imgWidth;
-          const scaleH = availH / imgHeight;
-          return Math.min(scaleW, scaleH, 1); // Never scale up beyond 100%
+        function setActiveButton(id) {
+          clearActiveButtons();
+          const btn = document.getElementById(id) || document.querySelector('.zoom-controls button[data-zoom="' + id + '"]');
+          if (btn) btn.classList.add('active');
         }
 
-        // Fit image to container and center it
+        // Calculate scale to fit image in container
+        function calcFitScale() {
+          const rect = container.getBoundingClientRect();
+          if (!naturalW || !naturalH || !rect.width || !rect.height) return 0.3;
+
+          const padding = 40;
+          const availW = rect.width - padding;
+          const availH = rect.height - padding;
+
+          const scaleW = availW / naturalW;
+          const scaleH = availH / naturalH;
+
+          // Return the smaller scale so image fits entirely, capped at 100%
+          return Math.min(scaleW, scaleH, 1);
+        }
+
+        // Center image in container at current scale
+        function centerImage() {
+          const rect = container.getBoundingClientRect();
+          const scaledW = naturalW * scale;
+          const scaledH = naturalH * scale;
+
+          panX = Math.round((rect.width - scaledW) / 2);
+          panY = Math.round((rect.height - scaledH) / 2);
+        }
+
+        // Fit and center image
         function fitToView() {
+          if (!imageReady) return;
+
           fitScale = calcFitScale();
           scale = fitScale;
-
-          const containerRect = container.getBoundingClientRect();
-          const imgWidth = (img.naturalWidth || img.width) * scale;
-          const imgHeight = (img.naturalHeight || img.height) * scale;
-
-          panX = (containerRect.width - imgWidth) / 2;
-          panY = (containerRect.height - imgHeight) / 2;
-
+          centerImage();
           updateTransform();
-          updateZoomButtons();
+          setActiveButton('zoom-fit');
         }
 
-        // Initialize when image loads
-        if (img.complete) {
-          fitToView();
+        // Initialize once image dimensions are known
+        function initializeZoom() {
+          naturalW = img.naturalWidth;
+          naturalH = img.naturalHeight;
+
+          if (!naturalW || !naturalH) {
+            console.error('Image has no dimensions');
+            return;
+          }
+
+          imageReady = true;
+
+          // Use requestAnimationFrame to ensure container is laid out
+          requestAnimationFrame(function() {
+            requestAnimationFrame(function() {
+              fitToView();
+            });
+          });
+        }
+
+        // Wait for image to load
+        if (img.complete && img.naturalWidth > 0) {
+          initializeZoom();
         } else {
-          img.onload = fitToView;
+          img.onload = initializeZoom;
         }
 
         // Wheel zoom (centered on cursor)
-        container.addEventListener('wheel', (e) => {
+        container.addEventListener('wheel', function(e) {
+          if (!imageReady) return;
           e.preventDefault();
+
           const rect = container.getBoundingClientRect();
           const mouseX = e.clientX - rect.left;
           const mouseY = e.clientY - rect.top;
 
-          const delta = e.deltaY > 0 ? 0.9 : 1.1;
-          const newScale = Math.min(Math.max(scale * delta, 0.05), 3);
+          // Zoom in or out
+          const factor = e.deltaY < 0 ? 1.15 : 0.87;
+          const newScale = Math.min(Math.max(scale * factor, 0.05), 4);
 
-          // Adjust pan to zoom toward cursor
-          panX = mouseX - (mouseX - panX) * (newScale / scale);
-          panY = mouseY - (mouseY - panY) * (newScale / scale);
+          // Zoom toward cursor position
+          const ratio = newScale / scale;
+          panX = mouseX - (mouseX - panX) * ratio;
+          panY = mouseY - (mouseY - panY) * ratio;
           scale = newScale;
 
           updateTransform();
-          updateZoomButtons();
+          clearActiveButtons();
         }, { passive: false });
 
         // Drag to pan
-        container.addEventListener('mousedown', (e) => {
-          if (e.button !== 0) return; // Left click only
+        container.addEventListener('mousedown', function(e) {
+          if (e.button !== 0) return;
           isDragging = true;
           startX = e.clientX - panX;
           startY = e.clientY - panY;
@@ -860,40 +888,44 @@
           e.preventDefault();
         });
 
-        window.addEventListener('mousemove', (e) => {
+        document.addEventListener('mousemove', function(e) {
           if (!isDragging) return;
           panX = e.clientX - startX;
           panY = e.clientY - startY;
           updateTransform();
         });
 
-        window.addEventListener('mouseup', () => {
+        document.addEventListener('mouseup', function() {
           if (isDragging) {
             isDragging = false;
             container.classList.remove('dragging');
           }
         });
 
-        // Zoom buttons as presets
-        document.querySelectorAll('.zoom-controls button[data-zoom]').forEach(btn => {
-          btn.addEventListener('click', () => {
+        // Fit button
+        document.getElementById('zoom-fit')?.addEventListener('click', function() {
+          fitToView();
+        });
+
+        // Preset zoom buttons
+        document.querySelectorAll('.zoom-controls button[data-zoom]').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            if (!imageReady) return;
             scale = parseInt(btn.dataset.zoom) / 100;
-            // Center image at new scale
-            const containerRect = container.getBoundingClientRect();
-            const imgWidth = (img.naturalWidth || img.width) * scale;
-            const imgHeight = (img.naturalHeight || img.height) * scale;
-            panX = (containerRect.width - imgWidth) / 2;
-            panY = Math.max(0, (containerRect.height - imgHeight) / 2);
+            centerImage();
             updateTransform();
-            updateZoomButtons();
+            setActiveButton(btn.dataset.zoom);
           });
         });
 
-        // Fit button
-        const fitBtn = document.getElementById('zoom-fit');
-        if (fitBtn) {
-          fitBtn.addEventListener('click', fitToView);
-        }
+        // Recalculate on window resize
+        window.addEventListener('resize', function() {
+          if (!imageReady) return;
+          // Only refit if currently at fit scale
+          if (Math.abs(scale - fitScale) < 0.01) {
+            fitToView();
+          }
+        });
       })();
     </script>
   `
