@@ -27,11 +27,11 @@
         ${currentVersion && currentVersion.png_path ? `
         <div class="diagram-controls">
           <div class="zoom-controls">
-            <button data-zoom="25">25%</button>
+            <button id="zoom-fit" class="active">Fit</button>
             <button data-zoom="50">50%</button>
-            <button data-zoom="75" class="active">75%</button>
             <button data-zoom="100">100%</button>
             <button data-zoom="150">150%</button>
+            <button data-zoom="200">200%</button>
           </div>
         </div>
         ` : ''}
@@ -767,10 +767,11 @@
         const img = document.getElementById('diagram-image');
         if (!img || !container) return;
 
-        let scale = 0.75;  // 75% default
+        let scale = 1;
         let panX = 0, panY = 0;
         let isDragging = false;
         let startX, startY;
+        let fitScale = 1;
 
         function updateTransform() {
           img.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + scale + ')';
@@ -778,10 +779,56 @@
 
         function updateZoomButtons() {
           const pct = Math.round(scale * 100);
-          document.querySelectorAll('.zoom-controls button[data-zoom]').forEach(btn => {
-            const btnZoom = parseInt(btn.dataset.zoom);
-            btn.classList.toggle('active', btnZoom === pct);
+          const fitPct = Math.round(fitScale * 100);
+          const isFit = Math.abs(scale - fitScale) < 0.01;
+
+          document.querySelectorAll('.zoom-controls button').forEach(btn => {
+            if (btn.id === 'zoom-fit') {
+              btn.classList.toggle('active', isFit);
+            } else if (btn.dataset.zoom) {
+              const btnZoom = parseInt(btn.dataset.zoom);
+              btn.classList.toggle('active', !isFit && btnZoom === pct);
+            }
           });
+        }
+
+        // Calculate scale to fit image in container with padding
+        function calcFitScale() {
+          const containerRect = container.getBoundingClientRect();
+          const imgWidth = img.naturalWidth || img.width;
+          const imgHeight = img.naturalHeight || img.height;
+          if (!imgWidth || !imgHeight) return 0.5;
+
+          const padding = 20;
+          const availW = containerRect.width - padding * 2;
+          const availH = containerRect.height - padding * 2;
+
+          const scaleW = availW / imgWidth;
+          const scaleH = availH / imgHeight;
+          return Math.min(scaleW, scaleH, 1); // Never scale up beyond 100%
+        }
+
+        // Fit image to container and center it
+        function fitToView() {
+          fitScale = calcFitScale();
+          scale = fitScale;
+
+          const containerRect = container.getBoundingClientRect();
+          const imgWidth = (img.naturalWidth || img.width) * scale;
+          const imgHeight = (img.naturalHeight || img.height) * scale;
+
+          panX = (containerRect.width - imgWidth) / 2;
+          panY = (containerRect.height - imgHeight) / 2;
+
+          updateTransform();
+          updateZoomButtons();
+        }
+
+        // Initialize when image loads
+        if (img.complete) {
+          fitToView();
+        } else {
+          img.onload = fitToView;
         }
 
         // Wheel zoom (centered on cursor)
@@ -792,7 +839,7 @@
           const mouseY = e.clientY - rect.top;
 
           const delta = e.deltaY > 0 ? 0.9 : 1.1;
-          const newScale = Math.min(Math.max(scale * delta, 0.1), 3);
+          const newScale = Math.min(Math.max(scale * delta, 0.05), 3);
 
           // Adjust pan to zoom toward cursor
           panX = mouseX - (mouseX - panX) * (newScale / scale);
@@ -831,15 +878,22 @@
         document.querySelectorAll('.zoom-controls button[data-zoom]').forEach(btn => {
           btn.addEventListener('click', () => {
             scale = parseInt(btn.dataset.zoom) / 100;
-            panX = 0; panY = 0;  // Reset pan on preset
+            // Center image at new scale
+            const containerRect = container.getBoundingClientRect();
+            const imgWidth = (img.naturalWidth || img.width) * scale;
+            const imgHeight = (img.naturalHeight || img.height) * scale;
+            panX = (containerRect.width - imgWidth) / 2;
+            panY = Math.max(0, (containerRect.height - imgHeight) / 2);
             updateTransform();
             updateZoomButtons();
           });
         });
 
-        // Initial state
-        updateTransform();
-        updateZoomButtons();
+        // Fit button
+        const fitBtn = document.getElementById('zoom-fit');
+        if (fitBtn) {
+          fitBtn.addEventListener('click', fitToView);
+        }
       })();
     </script>
   `
