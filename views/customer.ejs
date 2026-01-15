@@ -109,10 +109,10 @@
       </div>
 
       <div class="action-items-container" id="action-items-list">
-        ${['Stephen', 'Customer', 'Vendor', 'Partner', 'Unknown'].map(owner => {
+        ${[...new Set(actionItems.map(i => i.owner))].sort().map(owner => {
           const ownerItems = actionItems.filter(i => i.owner === owner);
           if (ownerItems.length === 0) return '';
-          const ownerClass = owner === 'Stephen' ? 'owner-stephen' : owner === 'Customer' ? 'owner-customer' : owner === 'Vendor' ? 'owner-vendor' : owner === 'Partner' ? 'owner-partner' : 'owner-unknown';
+          const ownerClass = owner === 'Stephen' ? 'owner-stephen' : owner === 'Customer' ? 'owner-customer' : owner === 'Vendor' ? 'owner-vendor' : owner === 'Partner' ? 'owner-partner' : 'owner-other';
           return `
             <div class="owner-group ${ownerClass}">
               <h3 class="owner-title">${owner}</h3>
@@ -283,7 +283,9 @@
         overflow: hidden !important;
         position: relative;
         cursor: grab;
-        min-height: 500px;
+        min-height: 400px;
+        max-height: 70vh;
+        background: #fafafa;
       }
 
       .diagram-display.dragging {
@@ -352,6 +354,7 @@
       .owner-group.owner-vendor { background: #f0f5ff; }
       .owner-group.owner-partner { background: #fdf2f8; }
       .owner-group.owner-unknown { background: #f3f4f6; }
+      .owner-group.owner-other { background: #f0fdf4; }
 
       .owner-title {
         margin: 0 0 0.75rem 0;
