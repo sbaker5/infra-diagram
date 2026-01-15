@@ -850,6 +850,29 @@
     // Start queue status polling
     setInterval(updateQueueStatus, 3000);
     updateQueueStatus();
+
+    // Auto-refresh Wave sessions every 15 minutes
+    const AUTO_REFRESH_MS = 15 * 60 * 1000;
+    setInterval(async function autoRefresh() {
+      try {
+        // Check if refresh already in progress
+        const statusRes = await fetch('/api/wave/status');
+        if (!statusRes.ok) return;
+
+        const status = await statusRes.json();
+        if (status.refreshing) return;  // Skip if already refreshing
+
+        console.log('[Auto-Refresh] Starting 15-minute refresh...');
+
+        // Trigger refresh
+        await fetch('/api/wave/refresh', { method: 'POST', keepalive: true });
+
+        // Start polling to reload when done
+        startRefreshPolling();
+      } catch (err) {
+        console.error('[Auto-Refresh] Error:', err);
+      }
+    }, AUTO_REFRESH_MS);
   }
 
   document.addEventListener('DOMContentLoaded', init);

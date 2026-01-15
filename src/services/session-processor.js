@@ -121,15 +121,20 @@ async function createDiagramIfTechnical(analysis, customerName, isUnknown, sessi
  * @returns {Object}
  */
 function ensureCustomer(result, customerName) {
-  if (result.customerId || customerName === 'Unknown Customer') {
+  // If we already have a customerId, nothing to do
+  if (result.customerId) {
     return result;
   }
 
-  const existing = db.searchCustomers(customerName);
+  // For Unknown Customer, still create/get the customer record so action items can be saved
+  const name = customerName || 'Unknown Customer';
+  const isUnknown = name === 'Unknown Customer';
+
+  const existing = db.searchCustomers(name);
   if (existing.length > 0) {
     result.customerId = existing[0].id;
   } else {
-    result.customerId = db.createCustomer(customerName, false);
+    result.customerId = db.createCustomer(name, isUnknown);
   }
 
   return result;

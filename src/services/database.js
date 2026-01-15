@@ -688,6 +688,50 @@ function updateActionItem(id, owner, item, sessionDate) {
   return actionItemOps.getById.get(id);
 }
 
+// Backfill action items from session_notes.action_items JSON to action_items table
+// This handles cases where items were stored in JSON but not saved to the dedicated table
+function backfillActionItems() {
+  // Find session_notes with action_items but no corresponding action_items records
+  const notes = db.prepare(`
+    SELECT sn.id, sn.customer_id, sn.action_items, sn.session_date, sn.title
+    FROM session_notes sn
+    WHERE sn.action_items IS NOT NULL
+      AND sn.action_items != '[]'
+      AND sn.customer_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM action_items ai WHERE ai.session_note_id = sn.id
+      )
+  `).all();
+
+  let count = 0;
+  for (const note of notes) {
+    try {
+      const items = JSON.parse(note.action_items);
+      if (!Array.isArray(items)) continue;
+
+      for (const item of items) {
+        if (!item.item) continue;
+        createActionItem(
+          note.id,
+          note.customer_id,
+          item.owner || 'Unknown',
+          item.item,
+          note.session_date,
+          note.title
+        );
+        count++;
+      }
+    } catch (e) {
+      console.error(`Failed to backfill action items for note ${note.id}:`, e.message);
+    }
+  }
+
+  if (count > 0) {
+    console.log(`[Database] Backfilled ${count} action items from session_notes`);
+  }
+  return count;
+}
+
 // Delete a diagram but keep associated action items
 // Action items have their own customer_id so they survive
 function deleteDiagramKeepActionItems(diagramId) {
@@ -922,6 +966,7 @@ module.exports = {
   saveActionItemsFromSession,
   moveActionItemToCustomer,
   updateActionItem,
+  backfillActionItems,
   // Diagram management
   deleteDiagramKeepActionItems,
   // Queue

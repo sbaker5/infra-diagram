@@ -7,6 +7,7 @@ const path = require('path');
 const webRoutes = require('./routes/web');
 const apiRoutes = require('./routes/api');
 const queueWorker = require('./services/queue-worker');
+const db = require('./services/database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -66,6 +67,9 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`Infrastructure Diagram App running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+
+  // Backfill any missing action items from session_notes to action_items table
+  db.backfillActionItems();
 
   // Start background queue worker
   queueWorker.start();
